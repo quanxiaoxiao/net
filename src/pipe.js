@@ -22,23 +22,40 @@ module.exports = (
   const sourceHostname = `${source.remoteAddress}:${source.remotePort}`;
   const sourceWrapper = connectHandler(source, {
     onData: (chunk) => {
+      if (!destWrapper) {
+        sourceWrapper();
+        return;
+      }
       const ret = destWrapper.write(chunk);
       if (!ret) {
         sourceWrapper.pause();
       }
     },
     onError: (error) => {
+      if (!destWrapper) {
+        return;
+      }
       logger.error(`${sourceHostname} ${error.message}`);
       destWrapper();
     },
     onEnd: () => {
+      if (!destWrapper) {
+        return;
+      }
       logger.info(`${sourceHostname} x->`);
       destWrapper.end();
     },
     onDrain: () => {
+      if (!destWrapper) {
+        sourceWrapper();
+        return;
+      }
       destWrapper.resume();
     },
   });
+  if (!sourceWrapper) {
+    return;
+  }
   destWrapper = connectHandler(dest, {
     onData: (chunk) => {
       const ret = sourceWrapper.write(chunk);

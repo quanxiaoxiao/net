@@ -19,7 +19,7 @@ const forward = (socket, {
   const connection = connector({
     hostname,
     port,
-    bufList: bufList.map((buf) => outgoing(buf)),
+    bufList,
   }, {
     onData: (chunk) => {
       if (socket.writable) {
@@ -52,7 +52,9 @@ const forward = (socket, {
       }
     },
     onDrain: () => {
-      socket.resume();
+      if (socket.readable) {
+        socket.resume();
+      }
     },
   });
 

@@ -6,13 +6,29 @@ module.exports = (socket, {
   onEnd,
   onDrain,
 }) => {
+  if (socket.connecting || socket.pending) {
+    socket.destroy();
+    return null;
+  }
   const bufList = [];
+  let isEndEmit = false;
   const handleDrain = () => {
-    while (!socket.destroyed
-      && socket.writable
-      && socket.bufferSize === 0
+    if (socket.destroyed || !socket.writable) {
+      onError(new Error('connect ECONNREFUSED'));
+      return;
+    }
+    while (socket.bufferSize === 0
       && bufList.length > 0) {
-      socket.write(bufList.shift());
+      if (socket.writable) {
+        const ret = socket.write(bufList.shift());
+        if (!ret) {
+          break;
+        }
+      } else {
+        cleanup();
+        onError(new Error('connect ECONNREFUSED'));
+        return;
+      }
     }
     if (socket.bufferSize === 0) {
       onDrain();
@@ -22,13 +38,17 @@ module.exports = (socket, {
     onData(chunk);
   };
   const handleEnd = () => {
+    if (!isEndEmit) {
+      isEndEmit = true;
+      onEnd();
+    }
     cleanup();
-    onEnd();
   };
   const handleClose = (hasError) => {
     if (hasError) {
       onError(new Error('socket had a transmission error'));
-    } else {
+    } else if (!isEndEmit) {
+      isEndEmit = true;
       onEnd();
     }
     cleanup();
@@ -72,6 +92,7 @@ module.exports = (socket, {
 
   connect.write = (chunk) => {
     if (socket.destroyed || !socket.writable) {
+      cleanup();
       onError(new Error('connect ECONNREFUSED'));
       return false;
     }
@@ -85,12 +106,18 @@ module.exports = (socket, {
   };
 
   connect.end = () => {
-    if (!socket.writable) {
+    if (socket.writable) {
+      if (bufList.length > 0) {
+        socket.end(Buffer.concat(bufList));
+        while (bufList.length !== 0) {
+          bufList.pop();
+        }
+      } else {
+        socket.end();
+      }
+    } else if (!socket.destroyed) {
       cleanup();
-    } else if (bufList.length > 0) {
-      socket.end(Buffer.concat(bufList));
-    } else {
-      socket.end();
+      socket.destroyed();
     }
   };
   return connect;

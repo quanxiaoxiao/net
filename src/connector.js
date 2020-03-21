@@ -54,8 +54,8 @@ module.exports = ({
 
   const handleEnd = () => {
     if (!isEndEmit) {
-      onEnd();
       isEndEmit = true;
+      onEnd();
     }
     cleanup();
   };
@@ -64,8 +64,8 @@ module.exports = ({
     if (hasError) {
       onError(new Error('socket had a transmission error'));
     } else if (!isEndEmit) {
-      onEnd();
       isEndEmit = true;
+      onEnd();
     }
     cleanup();
   };
@@ -101,13 +101,13 @@ module.exports = ({
   };
 
   connect.pause = () => {
-    if (!client.destroyed && !client.connecting) {
+    if (!client.destroyed && client.readable) {
       client.pause();
     }
   };
 
   connect.resume = () => {
-    if (!client.destroyed && !client.connecting) {
+    if (!client.destroyed && client.readable) {
       client.resume();
     }
   };
