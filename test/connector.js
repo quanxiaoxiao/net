@@ -154,8 +154,9 @@ test.cb('write', (t) => {
   }, 1000);
 });
 
+
 test.cb('end', (t) => {
-  t.plan(6);
+  t.plan(4);
   const server = net.createServer((socket) => {
     socket.on('data', (chunk) => {
       t.true(chunk.toString() === 'ccc');
@@ -174,7 +175,7 @@ test.cb('end', (t) => {
     },
     {
       onError: () => {
-        t.pass();
+        t.fail();
       },
       onData: () => {
         t.fail();
@@ -192,9 +193,6 @@ test.cb('end', (t) => {
 
   setTimeout(() => {
     connection.end();
-    process.nextTick(() => {
-      t.false(connection.write('aaa'));
-    });
   }, 500);
 
 
@@ -245,6 +243,56 @@ test.cb('close', (t) => {
       t.false(connection.write('aaa'));
     });
   }, 500);
+
+  setTimeout(() => {
+    server.close();
+    t.end();
+  }, 1000);
+});
+
+test.cb('error close', (t) => {
+  t.plan(5);
+  const server = net.createServer((socket) => {
+    socket.on('data', (chunk) => {
+      t.true(chunk.toString() === 'ccc');
+    });
+    socket.on('end', () => {
+      t.pass();
+    });
+  });
+  server.listen(4094);
+
+  const connection = connector(
+    {
+      hostname: 'localhost',
+      port: 4094,
+      bufList: [Buffer.from('ccc')],
+    },
+    {
+      onError: () => {
+        t.pass();
+      },
+      onData: () => {
+        t.fail();
+      },
+      onEnd: () => {
+        t.fail();
+      },
+      onDrain: () => {
+      },
+      onConnect: () => {
+        t.pass();
+      },
+    },
+  );
+
+  setTimeout(() => {
+    connection.end();
+    process.nextTick(() => {
+      t.false(connection.write('aaa'));
+    });
+  }, 500);
+
 
   setTimeout(() => {
     server.close();

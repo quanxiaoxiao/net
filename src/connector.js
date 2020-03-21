@@ -13,6 +13,7 @@ module.exports = ({
   onDrain,
 }) => {
   const client = net.Socket();
+  let isEndEmit = false;
 
   const handleConnect = () => {
     onConnect(client);
@@ -25,11 +26,22 @@ module.exports = ({
   };
 
   const handleDrain = () => {
-    while (!client.destroyed
-      && client.writable
-      && client.bufferSize === 0
+    if (client.destroyed || !client.writable) {
+      onError(new Error(`connect ECONNREFUSED ${hostname}:${port}`));
+      return;
+    }
+    while (client.bufferSize === 0
       && bufList.length > 0) {
-      client.write(bufList.shift());
+      if (client.writable) {
+        const ret = client.write(bufList.shift());
+        if (!ret) {
+          break;
+        }
+      } else {
+        cleanup();
+        onError(new Error(`connect ECONNREFUSED ${hostname}:${port}`));
+        return;
+      }
     }
     if (client.bufferSize === 0) {
       onDrain();
@@ -41,15 +53,19 @@ module.exports = ({
   };
 
   const handleEnd = () => {
+    if (!isEndEmit) {
+      onEnd();
+      isEndEmit = true;
+    }
     cleanup();
-    onEnd();
   };
 
   const handleClose = (hasError) => {
     if (hasError) {
       onError(new Error('socket had a transmission error'));
-    } else {
+    } else if (!isEndEmit) {
       onEnd();
+      isEndEmit = true;
     }
     cleanup();
   };
@@ -98,6 +114,7 @@ module.exports = ({
 
   connect.write = (chunk) => {
     if (client.destroyed || (!client.writable && !client.connecting)) {
+      cleanup();
       onError(new Error(`connect ECONNREFUSED ${hostname}:${port}`));
       return false;
     }
@@ -113,19 +130,28 @@ module.exports = ({
   };
 
   connect.end = () => {
-    if (!client.connecting && client.writable) {
+    if (client.connecting) {
+      client.off('connect', handleConnect);
+      cleanup();
+      client.destroy();
+    } else if (client.writable) {
       if (bufList.length > 0) {
         client.end(Buffer.concat(bufList));
+        while (bufList.length !== 0) {
+          bufList.pop();
+        }
       } else {
         client.end();
       }
-    } else {
-      if (client.connecting) {
-        client.off('connect', handleConnect);
-        client.destroy();
-      }
+    } else if (!client.destroyed) {
       cleanup();
+      client.destroy();
     }
+  };
+
+  connect.detach = () => {
+    cleanup();
+    return client;
   };
 
   return connect;

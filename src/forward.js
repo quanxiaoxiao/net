@@ -12,48 +12,41 @@ const forward = (socket, {
     error: console.error,
   },
 }) => {
-  if (logger && logger.info) {
-    logger.info(`${socket.remoteAddress} -> ${hostname}:${port}`);
-  }
-  const start = Date.now();
+  const sourceHostname = `${socket.remoteAddress}:${socket.remotePort}`;
+  const destHostname = `${hostname}:${port}`;
+  const start = new Date();
+  logger.info(`${sourceHostname} ----- ${destHostname} ${start.getTime()}`);
   const connection = connector({
     hostname,
     port,
-    bufList: bufList.map((buf) => outgoing(buf)).filter((buf) => Buffer.isBuffer(buf)),
+    bufList: bufList.map((buf) => outgoing(buf)),
   }, {
     onData: (chunk) => {
       if (socket.writable) {
-        const buf = incoming(chunk);
-        if (typeof buf === 'function') {
-          connection.write(buf(chunk));
-        } else {
-          const ret = socket.write(buf);
-          if (!ret) {
-            connection.pause();
-          }
+        const ret = socket.write(incoming(chunk));
+        if (!ret) {
+          connection.pause();
         }
       } else {
+        logger.error(`->${sourceHostname} EPIPE`);
+        cleanup();
         connection();
       }
     },
     onConnect: () => {
-      logger.info(`${socket.remoteAddress} -> ${hostname}:${port} ${Date.now() - start}ms`);
-      while (bufList.length !== 0) {
-        bufList.pop();
-      }
+      logger.info(`${sourceHostname} -> ${destHostname} ${Date.now() - start.getTime()}ms`);
     },
     onError: (error) => {
-      logger.error(`${hostname}:${port} ${error.message}`);
-      if (!socket.destroyed) {
-        cleanup();
-        socket.destroy();
-      }
+      logger.error(`${destHostname} ${error.message}`);
+      cleanup();
+      socket.destroy();
     },
     onEnd: () => {
-      logger.info(`${hostname}:${port} x-> ${socket.remoteAddress}`);
+      logger.info(`${destHostname} x-> ${sourceHostname}`);
       if (socket.writable) {
         socket.end();
       } else if (!socket.destroyed) {
+        logger.error(`${sourceHostname} error close`);
         cleanup();
         socket.destroy();
       }
@@ -64,35 +57,32 @@ const forward = (socket, {
   });
 
   const handleError = (error) => {
-    logger.error(`${socket.remoteAddress} ${error.message}`);
+    logger.error(`${sourceHostname} ${error.message}`);
     connection();
     cleanup();
   };
 
   const handleClose = (hasError) => {
+    cleanup();
     if (hasError) {
-      cleanup();
+      logger.error(`${sourceHostname} x-> ${destHostname} error close`);
       connection();
     } else {
+      logger.info(`${sourceHostname} x-> ${sourceHostname}`);
       connection.end();
     }
   };
 
   const handleEnd = () => {
-    logger.info(`${socket.remoteAddress} x-> ${hostname}:${port}`);
-    connection.end();
+    logger.info(`${sourceHostname} x-> ${destHostname}`);
     cleanup();
+    connection.end();
   };
 
   const handleData = (chunk) => {
-    const buf = outgoing(chunk);
-    if (!buf) {
+    const ret = connection.write(outgoing(chunk));
+    if (!ret) {
       socket.pause();
-    } else {
-      const ret = connection.write(buf);
-      if (!ret) {
-        socket.pause();
-      }
     }
   };
 
