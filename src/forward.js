@@ -12,6 +12,9 @@ const forward = (socket, {
     error: console.error,
   },
 }) => {
+  const state = {
+    isClose: false,
+  };
   const sourceHostname = `${socket.remoteAddress}:${socket.remotePort}`;
   const destHostname = `${hostname}:${port}`;
   const start = new Date();
@@ -22,6 +25,10 @@ const forward = (socket, {
     bufList,
   }, {
     onData: (chunk) => {
+      if (state.isClose) {
+        connection();
+        return;
+      }
       if (socket.writable) {
         const ret = socket.write(incoming(chunk));
         if (!ret) {
@@ -29,27 +36,34 @@ const forward = (socket, {
         }
       } else {
         logger.error(`->${sourceHostname} EPIPE`);
-        cleanup();
         connection();
       }
     },
     onConnect: () => {
-      logger.info(`${sourceHostname} -> ${destHostname} ${Date.now() - start.getTime()}ms`);
+      if (state.isClose) {
+        connection();
+      } else {
+        logger.info(`${sourceHostname} -> ${destHostname} ${Date.now() - start.getTime()}ms`);
+      }
     },
     onError: (error) => {
       logger.error(`${destHostname} ${error.message}`);
+      state.isClose = true;
       cleanup();
       socket.destroy();
     },
     onEnd: () => {
+      if (state.isClose) {
+        return;
+      }
+      state.isClose = true;
       logger.info(`${destHostname} x-> ${sourceHostname}`);
-      cleanup();
       if (socket.writable) {
         socket.end();
       }
     },
     onDrain: () => {
-      if (socket.readable) {
+      if (!socket.destroyed && socket.readable) {
         socket.resume();
       }
     },
@@ -57,11 +71,13 @@ const forward = (socket, {
 
   const handleError = (error) => {
     logger.error(`${sourceHostname} ${error.message}`);
+    state.isClose = true;
     connection();
     cleanup();
   };
 
   const handleClose = (hasError) => {
+    state.isClose = true;
     cleanup();
     if (hasError) {
       logger.error(`${sourceHostname} x-> ${destHostname} error close`);
@@ -74,14 +90,21 @@ const forward = (socket, {
 
   const handleEnd = () => {
     logger.info(`${sourceHostname} x-> ${destHostname}`);
+    state.isClose = true;
     cleanup();
     connection.end();
   };
 
   const handleData = (chunk) => {
-    const ret = connection.write(outgoing(chunk));
-    if (!ret) {
-      socket.pause();
+    try {
+      const ret = connection.write(outgoing(chunk));
+      if (!ret && socket.readable) {
+        socket.pause();
+      }
+    } catch (error) {
+      logger.error(`${destHostname} ${error.message}`);
+      cleanup();
+      socket.destroy();
     }
   };
 
@@ -89,7 +112,7 @@ const forward = (socket, {
     connection.resume();
   };
 
-  socket.on('error', handleError);
+  socket.once('error', handleError);
   socket.once('close', handleClose);
   socket.once('end', handleEnd);
   socket.on('drain', handleDrain);

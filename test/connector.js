@@ -156,7 +156,7 @@ test.cb('write', (t) => {
 
 
 test.cb('end', (t) => {
-  t.plan(3);
+  t.plan(4);
   const server = net.createServer((socket) => {
     socket.on('data', (chunk) => {
       t.true(chunk.toString() === 'ccc');
@@ -181,7 +181,7 @@ test.cb('end', (t) => {
         t.fail();
       },
       onEnd: () => {
-        t.fail();
+        t.pass();
       },
       onDrain: () => {
       },
@@ -203,7 +203,7 @@ test.cb('end', (t) => {
 });
 
 test.cb('close', (t) => {
-  t.plan(4);
+  t.plan(3);
   const server = net.createServer((socket) => {
     socket.on('data', () => {
       t.fail();
@@ -221,7 +221,7 @@ test.cb('close', (t) => {
     },
     {
       onError: () => {
-        t.pass();
+        t.fail();
       },
       onData: () => {
         t.fail();
@@ -240,7 +240,9 @@ test.cb('close', (t) => {
   setTimeout(() => {
     connection();
     process.nextTick(() => {
-      t.false(connection.write('aaa'));
+      t.throws(() => {
+        connection.write('aaa');
+      });
     });
   }, 500);
 
@@ -251,7 +253,7 @@ test.cb('close', (t) => {
 });
 
 test.cb('error close', (t) => {
-  t.plan(5);
+  t.plan(4);
   const server = net.createServer((socket) => {
     socket.on('data', (chunk) => {
       t.true(chunk.toString() === 'ccc');
@@ -270,13 +272,13 @@ test.cb('error close', (t) => {
     },
     {
       onError: () => {
-        t.pass();
+        t.fail();
       },
       onData: () => {
         t.fail();
       },
       onEnd: () => {
-        t.fail();
+        t.pass();
       },
       onDrain: () => {
       },
@@ -289,7 +291,9 @@ test.cb('error close', (t) => {
   setTimeout(() => {
     connection.end();
     process.nextTick(() => {
-      t.false(connection.write('aaa'));
+      t.throws(() => {
+        connection.write('aaa');
+      });
     });
   }, 500);
 
