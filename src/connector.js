@@ -13,7 +13,9 @@ module.exports = ({
   onDrain,
 }) => {
   const client = net.Socket();
-  let isEndEmit = false;
+  const state = {
+    isEndEmit: false,
+  };
 
   const handleConnect = () => {
     onConnect(client);
@@ -53,8 +55,8 @@ module.exports = ({
   };
 
   const handleEnd = () => {
-    if (!isEndEmit) {
-      isEndEmit = true;
+    if (!state.isEndEmit) {
+      state.isEndEmit = true;
       onEnd();
     }
     cleanup();
@@ -63,8 +65,8 @@ module.exports = ({
   const handleClose = (hasError) => {
     if (hasError) {
       onError(new Error('socket had a transmission error'));
-    } else if (!isEndEmit) {
-      isEndEmit = true;
+    } else if (!state.isEndEmit) {
+      state.isEndEmit = true;
       onEnd();
     }
     cleanup();
@@ -134,8 +136,9 @@ module.exports = ({
       client.off('connect', handleConnect);
       cleanup();
       client.destroy();
-    } else if (client.writable) {
-      if (bufList.length > 0) {
+    } else {
+      cleanup();
+      if (client.writable && bufList.length > 0) {
         client.end(Buffer.concat(bufList));
         while (bufList.length !== 0) {
           bufList.pop();
@@ -143,9 +146,6 @@ module.exports = ({
       } else {
         client.end();
       }
-    } else if (!client.destroyed) {
-      cleanup();
-      client.destroy();
     }
   };
 

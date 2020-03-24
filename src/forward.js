@@ -43,12 +43,9 @@ const forward = (socket, {
     },
     onEnd: () => {
       logger.info(`${destHostname} x-> ${sourceHostname}`);
+      cleanup();
       if (socket.writable) {
         socket.end();
-      } else if (!socket.destroyed) {
-        logger.error(`${sourceHostname} error close`);
-        cleanup();
-        socket.destroy();
       }
     },
     onDrain: () => {
