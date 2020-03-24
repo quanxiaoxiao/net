@@ -138,13 +138,17 @@ module.exports = ({
       client.destroy();
     } else {
       cleanup();
-      if (client.writable && bufList.length > 0) {
-        client.end(Buffer.concat(bufList));
-        while (bufList.length !== 0) {
-          bufList.pop();
+      if (client.writable) {
+        if (bufList.length > 0) {
+          client.end(Buffer.concat(bufList));
+          while (bufList.length !== 0) {
+            bufList.pop();
+          }
+        } else {
+          client.end();
         }
       } else {
-        client.end();
+        client.destroy();
       }
     }
   };
