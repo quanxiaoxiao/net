@@ -253,7 +253,7 @@ test.cb('close', (t) => {
 });
 
 test.cb('error close', (t) => {
-  t.plan(4);
+  t.plan(5);
   const server = net.createServer((socket) => {
     socket.on('data', (chunk) => {
       t.true(chunk.toString() === 'ccc');
