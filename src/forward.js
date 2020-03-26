@@ -23,7 +23,7 @@ const forward = (socket, {
   socket.once('close', handleClose);
   socket.once('end', handleEnd);
 
-  if (!state.writable || state.isClose) {
+  if (!socket.writable || state.isClose) {
     return;
   }
   const sourceHostname = `${socket.remoteAddress}:${socket.remotePort}`;
@@ -122,7 +122,7 @@ const forward = (socket, {
     }
   }
 
-  const handleData = (chunk) => {
+  function handleData(chunk) {
     try {
       const ret = connection.write(outgoing(chunk));
       if (!ret) {
@@ -133,11 +133,11 @@ const forward = (socket, {
       logger.error(`${error.message}`);
       socket.destroy();
     }
-  };
+  }
 
-  const handleDrain = () => {
+  function handleDrain() {
     connection.resume();
-  };
+  }
 
   socket.on('drain', handleDrain);
   socket.on('data', handleData);
