@@ -43,7 +43,9 @@ module.exports = ({
 
   const handleDrain = () => {
     if (state.isClose || state.isEnd || !state.isConnect) {
-      client.destroy();
+      if (!client.destroyed) {
+        client.destroy();
+      }
       return;
     }
     while (client.bufferSize === 0
@@ -124,7 +126,6 @@ module.exports = ({
       client.off('data', handleData);
       client.off('end', handleEnd);
       client.off('close', handleClose);
-      client.off('error', handleError);
     }
   }
 
@@ -202,11 +203,12 @@ module.exports = ({
       return null;
     }
     if (client.connecting) {
-      cleanup();
       client.destroy();
+      cleanup();
       return null;
     }
     cleanup();
+    client.off('error', handleError);
     return client;
   };
 

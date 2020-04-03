@@ -14,10 +14,13 @@ const forward = (socket, {
 }) => {
   const state = {
     isClose: false,
-    isCloseConnect: false,
+    isConnectorClose: false,
     isCleanup: false,
   };
   let connection;
+
+  const sourceHostname = `${socket.remoteAddress}:${socket.remotePort}`;
+  const destHostname = `${hostname}:${port}`;
 
   socket.once('error', handleError);
   socket.once('close', handleClose);
@@ -26,8 +29,6 @@ const forward = (socket, {
   if (!socket.writable || state.isClose) {
     return;
   }
-  const sourceHostname = `${socket.remoteAddress}:${socket.remotePort}`;
-  const destHostname = `${hostname}:${port}`;
   const start = new Date();
 
   logger.info(`${sourceHostname} ----- ${destHostname} ${start.getTime()}`);
@@ -40,7 +41,7 @@ const forward = (socket, {
     onData: (chunk) => {
       if (state.isClose) {
         logger.error(`${destHostname} -> ${sourceHostname} EPIPE`);
-        state.isCloseConnect = true;
+        state.isConnectorClose = true;
         connection();
       } else if (socket.writable) {
         const ret = socket.write(incoming(chunk));
@@ -51,14 +52,14 @@ const forward = (socket, {
     },
     onConnect: () => {
       if (state.isClose) {
-        state.isCloseConnect = true;
+        state.isConnectorClose = true;
         connection();
       } else {
         logger.info(`${sourceHostname} -> ${destHostname} ${Date.now() - start.getTime()}ms`);
       }
     },
     onError: (error) => {
-      state.isCloseConnect = true;
+      state.isConnectorClose = true;
       logger.error(`${destHostname} x-> ${error.message}`);
       if (!state.destroyed) {
         socket.destroy();
@@ -66,7 +67,7 @@ const forward = (socket, {
     },
     onEnd: () => {
       logger.info(`${destHostname} x-> ${sourceHostname}`);
-      state.isCloseConnect = true;
+      state.isConnectorClose = true;
       if (socket.writable) {
         socket.end();
       }
@@ -81,8 +82,8 @@ const forward = (socket, {
   function handleError(error) {
     logger.error(`${sourceHostname} ${error.message}`);
     state.isClose = true;
-    if (connection && !state.isCloseConnect) {
-      state.isCloseConnect = true;
+    if (connection && !state.isConnectorClose) {
+      state.isConnectorClose = true;
       connection();
     }
     cleanup();
@@ -91,19 +92,19 @@ const forward = (socket, {
   function handleClose(hasError) {
     state.isClose = true;
     cleanup();
-    if (!connection || state.isCloseConnect) {
+    if (!connection || state.isConnectorClose) {
       return;
     }
     if (hasError) {
       logger.error(`${sourceHostname} x-> ${destHostname}`);
-      if (!state.isCloseConnect) {
-        state.isCloseConnect = true;
+      if (!state.isConnectorClose) {
+        state.isConnectorClose = true;
         connection();
       }
     } else {
       logger.info(`${sourceHostname} x-> ${sourceHostname}`);
-      if (!state.isCloseConnect) {
-        state.isCloseConnect = true;
+      if (!state.isConnectorClose) {
+        state.isConnectorClose = true;
         connection.end();
       }
     }
@@ -112,25 +113,29 @@ const forward = (socket, {
   function handleEnd() {
     state.isClose = true;
     cleanup();
-    if (!connection || state.isCloseConnect) {
+    if (!connection || state.isConnectorClose) {
       return;
     }
     logger.info(`${sourceHostname} x-> ${destHostname}`);
-    if (!state.isCloseConnect) {
-      state.isCloseConnect = true;
+    if (!state.isConnectorClose) {
+      state.isConnectorClose = true;
       connection.end();
     }
   }
 
   function handleData(chunk) {
-    try {
-      const ret = connection.write(outgoing(chunk));
-      if (!ret) {
-        socket.pause();
+    if (!state.isConnectorClose) {
+      try {
+        const ret = connection.write(outgoing(chunk));
+        if (!ret) {
+          socket.pause();
+        }
+      } catch (error) {
+        state.isConnectorClose = true;
+        logger.error(`${error.message}`);
+        socket.destroy();
       }
-    } catch (error) {
-      state.isCloseConnect = true;
-      logger.error(`${error.message}`);
+    } else {
       socket.destroy();
     }
   }
@@ -149,7 +154,6 @@ const forward = (socket, {
       socket.off('drain', handleDrain);
       socket.off('close', handleClose);
       socket.off('end', handleEnd);
-      socket.off('error', handleError);
     }
   }
 };
