@@ -26,9 +26,14 @@ module.exports = (
         sourceWrapper();
         return;
       }
-      const ret = destWrapper.write(chunk);
-      if (!ret) {
-        sourceWrapper.pause();
+      try {
+        const ret = destWrapper.write(chunk);
+        if (!ret) {
+          sourceWrapper.pause();
+        }
+      } catch (error) {
+        logger.error(error);
+        sourceWrapper();
       }
     },
     onError: (error) => {
@@ -58,9 +63,14 @@ module.exports = (
   }
   destWrapper = connectHandler(dest, {
     onData: (chunk) => {
-      const ret = sourceWrapper.write(chunk);
-      if (!ret) {
-        destWrapper.pause();
+      try {
+        const ret = sourceWrapper.write(chunk);
+        if (!ret) {
+          destWrapper.pause();
+        }
+      } catch (error) {
+        logger.error(error);
+        destWrapper();
       }
     },
     onError: (error) => {

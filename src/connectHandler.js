@@ -10,52 +10,93 @@ module.exports = (socket, {
     socket.destroy();
     return null;
   }
+  if (!socket.writable) {
+    return null;
+  }
+  const state = {
+    isEnd: false,
+    isConnect: true,
+    isClose: false,
+    isEndEmit: false,
+    isErrorEmit: false,
+    isCleanup: false,
+  };
+
   const bufList = [];
-  let isEndEmit = false;
   const handleDrain = () => {
-    if (socket.destroyed || !socket.writable) {
-      onError(new Error('connect ECONNREFUSED'));
+    if (state.isClose || state.isEnd || !state.isConnect) {
+      if (!socket.destroyed) {
+        socket.destroy();
+      }
       return;
     }
     while (socket.bufferSize === 0
       && bufList.length > 0) {
-      if (socket.writable) {
+      if (!state.isClose && !state.isEnd && state.isConnect && socket.writable) {
         const ret = socket.write(bufList.shift());
         if (!ret) {
           break;
         }
       } else {
-        cleanup();
-        onError(new Error('connect ECONNREFUSED'));
+        if (!socket.destroyed) {
+          socket.destroy();
+        }
         return;
       }
     }
-    if (socket.bufferSize === 0) {
+    if (!state.isConnect) {
+      if (!socket.destroyed) {
+        socket.destroy();
+      }
+    } else if (socket.bufferSize === 0) {
       onDrain();
     }
   };
   const handleData = (chunk) => {
-    onData(chunk);
+    if (state.isConnect) {
+      onData(chunk);
+    } else if (!socket.destroyed) {
+      socket.destroy();
+    }
   };
+
   const handleEnd = () => {
-    if (!isEndEmit) {
-      isEndEmit = true;
+    state.isEnd = true;
+    state.isClose = true;
+    if (!state.isEndEmit && state.isConnect) {
+      state.isEndEmit = true;
+      state.isConnect = false;
       onEnd();
     }
     cleanup();
   };
   const handleClose = (hasError) => {
+    state.isClose = true;
     if (hasError) {
-      onError(new Error('socket had a transmission error'));
-    } else if (!isEndEmit) {
-      isEndEmit = true;
-      onEnd();
+      if (!state.isErrorEmit && state.isConnect) {
+        state.isErrorEmit = true;
+        state.isConnect = false;
+        onError(new Error('socket had a transmission error'));
+      }
+    } else {
+      state.isEnd = true;
+      if (!state.isEndEmit && state.isConnect) {
+        state.isConnect = false;
+        state.isEndEmit = true;
+        onEnd();
+      }
     }
     cleanup();
   };
+
   const handleError = (error) => {
+    state.isClose = true;
+    if (!state.isErrorEmit && state.isConnect) {
+      state.isErrorEmit = true;
+      state.isConnect = false;
+      onError(error);
+    }
     cleanup();
-    onError(error);
   };
 
   socket.once('error', handleError);
@@ -65,36 +106,38 @@ module.exports = (socket, {
   socket.once('close', handleClose);
 
   function cleanup() {
-    socket.off('drain', handleDrain);
-    socket.off('data', handleData);
-    socket.off('end', handleEnd);
-    socket.off('close', handleClose);
-    socket.off('error', handleError);
+    if (!state.isCleanup) {
+      state.isCleanup = true;
+      socket.off('drain', handleDrain);
+      socket.off('data', handleData);
+      socket.off('end', handleEnd);
+      socket.off('close', handleClose);
+    }
   }
+
   const connect = () => {
-    cleanup();
+    state.isConnect = false;
     if (!socket.destroyed) {
       socket.destroy();
     }
+    cleanup();
   };
 
   connect.pause = () => {
-    if (!socket.destroyed && socket.readable) {
+    if (socket.readable) {
       socket.pause();
     }
   };
 
   connect.resume = () => {
-    if (!socket.destroyed && socket.readable) {
+    if (socket.readable) {
       socket.resume();
     }
   };
 
   connect.write = (chunk) => {
-    if (socket.destroyed || !socket.writable) {
-      cleanup();
-      onError(new Error('connect ECONNREFUSED'));
-      return false;
+    if (state.isClose || state.isEnd || !state.isConnect) {
+      throw new Error('connect ECONNREFUSED');
     }
     if (bufList.length > 0
       || socket.bufferSize > 0
@@ -106,18 +149,18 @@ module.exports = (socket, {
   };
 
   connect.end = () => {
-    if (socket.writable) {
-      if (bufList.length > 0) {
-        socket.end(Buffer.concat(bufList));
-        while (bufList.length !== 0) {
-          bufList.pop();
+    if (!state.isEnd) {
+      state.isEnd = true;
+      if (socket.writable) {
+        if (bufList.length > 0) {
+          socket.end(Buffer.concat(bufList));
+          while (bufList.length !== 0) {
+            bufList.pop();
+          }
+        } else {
+          socket.end();
         }
-      } else {
-        socket.end();
       }
-    } else if (!socket.destroyed) {
-      cleanup();
-      socket.destroyed();
     }
   };
   return connect;
