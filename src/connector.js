@@ -199,7 +199,7 @@ module.exports = ({
   };
 
   connect.detach = () => {
-    if (client.destroyed) {
+    if (client.destroyed || state.isEnd || state.isClose) {
       return null;
     }
     if (client.connecting) {
