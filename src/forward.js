@@ -61,7 +61,7 @@ const forward = (socket, {
     onError: (error) => {
       state.isConnectorClose = true;
       logger.error(`${destHostname} x-> ${error.message}`);
-      if (!state.destroyed) {
+      if (!socket.destroyed) {
         socket.destroy();
       }
     },

@@ -159,6 +159,11 @@ module.exports = ({
 
   connect.write = (chunk) => {
     if (state.isClose || state.isEnd || !state.isConnect) {
+      process.nextTick(() => {
+        if (!state.isClose && !state.isEnd && !client.destroyed) {
+          client.destroy();
+        }
+      });
       throw new Error(`connect ECONNREFUSED ${hostname}:${port}`);
     }
     if (!client.writable && !client.connecting) {
