@@ -69,13 +69,13 @@ const connectHandler = (socket, {
   };
 
   const handleEnd = () => {
-    state.isEnd = true;
     state.isClose = true;
-    if (!state.isEndEmit && state.isConnect) {
+    if (!state.isEnd && !state.isEndEmit && state.isConnect) {
       state.isEndEmit = true;
       state.isConnect = false;
       onEnd();
     }
+    state.isEnd = true;
     cleanup();
   };
   const handleClose = (hasError) => {
@@ -87,12 +87,12 @@ const connectHandler = (socket, {
         onError(new Error('socket had a transmission error'));
       }
     } else {
-      state.isEnd = true;
-      if (!state.isEndEmit && state.isConnect) {
+      if (!state.isEnd && !state.isEndEmit && state.isConnect) {
         state.isConnect = false;
         state.isEndEmit = true;
         onEnd();
       }
+      state.isEnd = true;
     }
     cleanup();
   };
