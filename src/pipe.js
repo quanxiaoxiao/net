@@ -8,15 +8,6 @@ module.exports = (
     info: console.log,
   },
 ) => {
-  if (!source.writable || !dest.writable) {
-    if (!source.destroyed) {
-      source.destroy();
-    }
-    if (!dest.destroyed) {
-      dest.destroy();
-    }
-    return;
-  }
   let destWrapper;
   const destHostname = `${dest.remoteAddress}:${dest.remotePort}`;
   const sourceHostname = `${source.remoteAddress}:${source.remotePort}`;

@@ -1,18 +1,12 @@
 /* eslint no-use-before-define: 0 */
 
-module.exports = (socket, {
+
+const connectHandler = (socket, {
   onData,
   onError,
   onEnd,
   onDrain,
 }) => {
-  if (socket.connecting || socket.pending) {
-    socket.destroy();
-    return null;
-  }
-  if (!socket.writable) {
-    return null;
-  }
   const state = {
     isEnd: false,
     isConnect: true,
@@ -21,6 +15,20 @@ module.exports = (socket, {
     isErrorEmit: false,
     isCleanup: false,
   };
+  const handleErrorOnStart = (error) => {
+    state.isErrorEmit = true;
+    state.isClose = true;
+    state.isConnect = false;
+    onError(error);
+  };
+  socket.once('error', handleErrorOnStart);
+  if (socket.connecting || socket.pending) {
+    socket.destroy();
+    return null;
+  }
+  if (!socket.writable || state.isClose) {
+    return null;
+  }
 
   const bufList = [];
   const handleDrain = () => {
@@ -100,6 +108,7 @@ module.exports = (socket, {
   };
 
   socket.once('error', handleError);
+  socket.off('error', handleErrorOnStart);
   socket.on('data', handleData);
   socket.on('drain', handleDrain);
   socket.once('end', handleEnd);
@@ -165,3 +174,5 @@ module.exports = (socket, {
   };
   return connect;
 };
+
+module.exports = connectHandler;
