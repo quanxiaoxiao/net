@@ -5,6 +5,7 @@ const connectHandler = (socket, {
   onError,
   onEnd,
   onDrain,
+  bufList: bList,
 }) => {
   const state = {
     isEnd: false,
@@ -31,7 +32,7 @@ const connectHandler = (socket, {
     return null;
   }
 
-  const bufList = [];
+  const bufList = [...(bList || [])];
   const handleDrain = () => {
     if (state.isClose || state.isEnd || !state.isConnect) {
       if (!socket.destroyed) {

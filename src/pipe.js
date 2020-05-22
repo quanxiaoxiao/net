@@ -28,25 +28,23 @@ module.exports = (
       }
     },
     onError: (error) => {
-      if (!destWrapper) {
-        return;
+      if (destWrapper) {
+        logger.error(`${sourceHostname} ${error.message}`);
+        destWrapper();
       }
-      logger.error(`${sourceHostname} ${error.message}`);
-      destWrapper();
     },
     onEnd: () => {
-      if (!destWrapper) {
-        return;
+      if (destWrapper) {
+        logger.info(`${sourceHostname} x->`);
+        destWrapper.end();
       }
-      logger.info(`${sourceHostname} x->`);
-      destWrapper.end();
     },
     onDrain: () => {
       if (!destWrapper) {
         sourceWrapper();
-        return;
+      } else {
+        destWrapper.resume();
       }
-      destWrapper.resume();
     },
   });
   if (!sourceWrapper) {
@@ -76,4 +74,7 @@ module.exports = (
       sourceWrapper.resume();
     },
   });
+  if (!destWrapper) {
+    sourceWrapper();
+  }
 };
