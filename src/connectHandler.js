@@ -1,6 +1,5 @@
 /* eslint no-use-before-define: 0 */
 
-
 const connectHandler = (socket, {
   onData,
   onError,
@@ -24,9 +23,11 @@ const connectHandler = (socket, {
   socket.once('error', handleErrorOnStart);
   if (socket.connecting || socket.pending) {
     socket.destroy();
+    onError(new Error('socket is not connect'));
     return null;
   }
   if (!socket.writable || state.isClose) {
+    onError(new Error('socket has closed'));
     return null;
   }
 
@@ -78,6 +79,7 @@ const connectHandler = (socket, {
     state.isEnd = true;
     cleanup();
   };
+
   const handleClose = (hasError) => {
     state.isClose = true;
     if (hasError) {
