@@ -175,6 +175,11 @@ const connectHandler = (socket, {
       }
     }
   };
+
+  connect.bufList = bufList;
+  connect.socket = socket;
+  connect.fresh = handleDrain;
+
   return connect;
 };
 

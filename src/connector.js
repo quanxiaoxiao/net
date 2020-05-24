@@ -217,5 +217,9 @@ module.exports = ({
     return client;
   };
 
+  connect.bufList = bufList;
+  connect.socket = client;
+  connect.fresh = handleDrain;
+
   return connect;
 };

@@ -47,34 +47,33 @@ module.exports = (
       }
     },
   });
-  if (!sourceWrapper) {
-    return;
-  }
-  destWrapper = connectHandler(dest, {
-    onData: (chunk) => {
-      try {
-        const ret = sourceWrapper.write(chunk);
-        if (!ret) {
-          destWrapper.pause();
+  if (sourceWrapper) {
+    destWrapper = connectHandler(dest, {
+      onData: (chunk) => {
+        try {
+          const ret = sourceWrapper.write(chunk);
+          if (!ret) {
+            destWrapper.pause();
+          }
+        } catch (error) {
+          logger.error(error);
+          destWrapper();
         }
-      } catch (error) {
-        logger.error(error);
-        destWrapper();
-      }
-    },
-    onError: (error) => {
-      logger.error(`${destHostname} ${error.message}`);
+      },
+      onError: (error) => {
+        logger.error(`${destHostname} ${error.message}`);
+        sourceWrapper();
+      },
+      onEnd: () => {
+        logger.info(`<-x ${destHostname}`);
+        sourceWrapper.end();
+      },
+      onDrain: () => {
+        sourceWrapper.resume();
+      },
+    });
+    if (!destWrapper) {
       sourceWrapper();
-    },
-    onEnd: () => {
-      logger.info(`<-x ${destHostname}`);
-      sourceWrapper.end();
-    },
-    onDrain: () => {
-      sourceWrapper.resume();
-    },
-  });
-  if (!destWrapper) {
-    sourceWrapper();
+    }
   }
 };
