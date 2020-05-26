@@ -48,15 +48,15 @@ module.exports = ({
       }
       return;
     }
-    while (client.bufferSize === 0
-      && bufList.length > 0) {
+    let ret = true;
+    while (bufList.length > 0) {
       if (!state.isClose && !state.isEnd && state.isConnect && client.writable) {
-        const ret = client.write(bufList.shift());
+        ret = client.write(bufList.shift());
         if (!ret) {
           break;
         }
       } else {
-        if (!client.destroyed) {
+        if (!client.destroyed && !state.isEnd) {
           client.destroy();
         }
         return;
@@ -66,7 +66,7 @@ module.exports = ({
       if (!client.destroyed) {
         client.destroy();
       }
-    } else if (client.bufferSize === 0) {
+    } else if (ret) {
       onDrain();
     }
   };
@@ -170,12 +170,11 @@ module.exports = ({
       if (!client.destroyed) {
         client.destroy();
       }
-      return false;
+      throw new Error(`EPIPE ${hostname}:${port}`);
     }
     if (client.pending
       || client.connecting
       || bufList.length > 0
-      || client.bufferSize > 0
     ) {
       bufList.push(chunk);
       return false;

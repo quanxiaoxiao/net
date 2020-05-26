@@ -33,6 +33,7 @@ const connectHandler = (socket, {
   }
 
   const bufList = [...(bList || [])];
+
   const handleDrain = () => {
     if (state.isClose || state.isEnd || !state.isConnect) {
       if (!socket.destroyed) {
@@ -40,15 +41,15 @@ const connectHandler = (socket, {
       }
       return;
     }
-    while (socket.bufferSize === 0
-      && bufList.length > 0) {
+    let ret = true;
+    while (bufList.length > 0) {
       if (!state.isClose && !state.isEnd && state.isConnect && socket.writable) {
-        const ret = socket.write(bufList.shift());
+        ret = socket.write(bufList.shift());
         if (!ret) {
           break;
         }
       } else {
-        if (!socket.destroyed) {
+        if (!socket.destroyed && !state.isEnd) {
           socket.destroy();
         }
         return;
@@ -58,10 +59,11 @@ const connectHandler = (socket, {
       if (!socket.destroyed) {
         socket.destroy();
       }
-    } else if (socket.bufferSize === 0) {
+    } else if (ret) {
       onDrain();
     }
   };
+
   const handleData = (chunk) => {
     if (state.isConnect) {
       onData(chunk);
@@ -149,11 +151,14 @@ const connectHandler = (socket, {
 
   connect.write = (chunk) => {
     if (state.isClose || state.isEnd || !state.isConnect) {
+      process.nextTick(() => {
+        if (!state.isClose && !state.isEnd && !socket.destroyed) {
+          socket.destroy();
+        }
+      });
       throw new Error('connect ECONNREFUSED');
     }
-    if (bufList.length > 0
-      || socket.bufferSize > 0
-    ) {
+    if (bufList.length > 0) {
       bufList.push(chunk);
       return false;
     }
