@@ -42,10 +42,13 @@ module.exports = ({
   };
 
   const handleDrain = () => {
-    if (state.isClose || state.isEnd || !state.isConnect) {
+    if (state.isClose || !state.isConnect) {
       if (!client.destroyed) {
         client.destroy();
       }
+      return;
+    }
+    if (state.isEnd) {
       return;
     }
     let ret = true;
@@ -177,6 +180,9 @@ module.exports = ({
       || bufList.length > 0
     ) {
       bufList.push(chunk);
+      if (!client.pending && !client.connecting) {
+        handleDrain();
+      }
       return false;
     }
     return client.write(chunk);

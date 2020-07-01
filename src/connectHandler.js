@@ -16,29 +16,44 @@ const connectHandler = (socket, {
     isCleanup: false,
   };
   const handleErrorOnStart = (error) => {
-    state.isErrorEmit = true;
     state.isClose = true;
     state.isConnect = false;
-    onError(error);
+    if (!state.isErrorEmit) {
+      state.isErrorEmit = true;
+      onError(error);
+    }
   };
   socket.once('error', handleErrorOnStart);
   if (socket.connecting || socket.pending) {
-    socket.destroy();
-    onError(new Error('socket is not connect'));
+    if (!socket.destroyed) {
+      state.isClose = true;
+      state.isConnect = false;
+      socket.destroy();
+    }
+    if (!state.isErrorEmit) {
+      state.isErrorEmit = true;
+      onError(new Error('socket is not connect'));
+    }
     return null;
   }
   if (!socket.writable || state.isClose) {
-    onError(new Error('socket has closed'));
+    if (!state.isErrorEmit) {
+      state.isErrorEmit = true;
+      onError(new Error('socket has closed'));
+    }
     return null;
   }
 
   const bufList = [...(bList || [])];
 
   const handleDrain = () => {
-    if (state.isClose || state.isEnd || !state.isConnect) {
+    if (state.isClose || !state.isConnect) {
       if (!socket.destroyed) {
         socket.destroy();
       }
+      return;
+    }
+    if (state.isEnd) {
       return;
     }
     let ret = true;
@@ -160,6 +175,7 @@ const connectHandler = (socket, {
     }
     if (bufList.length > 0) {
       bufList.push(chunk);
+      handleDrain();
       return false;
     }
     return socket.write(chunk);
