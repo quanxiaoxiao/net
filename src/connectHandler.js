@@ -175,7 +175,9 @@ const connectHandler = (socket, {
     }
     if (bufList.length > 0) {
       bufList.push(chunk);
-      handleDrain();
+      process.nextTick(() => {
+        handleDrain();
+      });
       return false;
     }
     return socket.write(chunk);

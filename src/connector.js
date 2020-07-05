@@ -180,9 +180,11 @@ module.exports = ({
       || bufList.length > 0
     ) {
       bufList.push(chunk);
-      if (!client.pending && !client.connecting) {
-        handleDrain();
-      }
+      process.nextTick(() => {
+        if (!client.pending && !client.connecting) {
+          handleDrain();
+        }
+      });
       return false;
     }
     return client.write(chunk);
