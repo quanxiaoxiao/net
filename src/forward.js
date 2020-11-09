@@ -25,8 +25,13 @@ const forward = (socket, {
   socket.once('error', handleError);
   socket.once('close', handleClose);
   socket.once('end', handleEnd);
-
   if (!socket.writable || state.isClose) {
+    if (!state.isCleanup) {
+      state.isCleanup = true;
+      socket.off('error', handleError);
+      socket.off('close', handleClose);
+      socket.off('end', handleEnd);
+    }
     return;
   }
   const start = new Date();
@@ -44,7 +49,7 @@ const forward = (socket, {
         state.isConnectorClose = true;
         connection();
       } else if (socket.writable) {
-        const ret = socket.write(incoming(chunk));
+        const ret = socket.write(incoming ? incoming(chunk) : chunk);
         if (!ret) {
           connection.pause();
         }
@@ -66,8 +71,8 @@ const forward = (socket, {
       }
     },
     onEnd: () => {
-      logger.info(`${destHostname} x-> ${sourceHostname}`);
       state.isConnectorClose = true;
+      logger.info(`${destHostname} x-> ${sourceHostname}`);
       if (socket.writable) {
         socket.end();
       }
@@ -126,7 +131,7 @@ const forward = (socket, {
   function handleData(chunk) {
     if (!state.isConnectorClose) {
       try {
-        const ret = connection.write(outgoing(chunk));
+        const ret = connection.write(outgoing ? outgoing(chunk) : chunk);
         if (!ret) {
           socket.pause();
         }
