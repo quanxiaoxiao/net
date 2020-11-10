@@ -22,6 +22,8 @@ module.exports = ({
     isEndEmit: false,
 
     isCleanup: false,
+
+    waited: false,
   };
 
   const destroy = () => {
@@ -86,14 +88,14 @@ module.exports = ({
     if (!client.writable || client.destroyed) {
       return;
     }
-    let ret = true;
     while (bufList.length > 0) {
-      ret = client.write(bufList.shift());
+      const ret = client.write(bufList.shift());
       if (!ret) {
         break;
       }
     }
-    if (ret && state.isConnect && onDrain) {
+    state.waited = bufList.length > 0;
+    if (!state.waited && state.isConnect && onDrain) {
       onDrain();
     }
   };
@@ -145,13 +147,13 @@ module.exports = ({
   };
 
   connect.pause = () => {
-    if (client.readable) {
+    if (client.readable && !client.isPaused()) {
       client.pause();
     }
   };
 
   connect.resume = () => {
-    if (client.readable) {
+    if (client.readable && client.isPaused()) {
       client.resume();
     }
   };
@@ -165,17 +167,22 @@ module.exports = ({
     }
     if (client.pending
       || client.connecting
+      || state.waited
       || bufList.length > 0
     ) {
-      bufList.push(chunk);
-      process.nextTick(() => {
-        if (!client.pending && !client.connecting) {
+      if (!client.pending && !client.connecting && bufList.length === 0) {
+        process.nextTick(() => {
           handleDrain();
-        }
-      });
+        });
+      }
+      bufList.push(chunk);
       return false;
     }
-    return client.write(chunk);
+    const ret = client.write(chunk);
+    if (!ret) {
+      state.waited = true;
+    }
+    return true;
   };
 
   connect.end = () => {

@@ -16,6 +16,7 @@ const forward = (socket, {
     isClose: false,
     isConnectorClose: false,
     isCleanup: false,
+    paused: false,
   };
   let connection;
 
@@ -78,8 +79,11 @@ const forward = (socket, {
       }
     },
     onDrain: () => {
-      if (socket.readable) {
-        socket.resume();
+      if (state.paused) {
+        state.paused = false;
+        if (socket.readable && socket.isPaused()) {
+          socket.resume();
+        }
       }
     },
   });
@@ -132,15 +136,20 @@ const forward = (socket, {
     if (!state.isConnectorClose) {
       try {
         const ret = connection.write(outgoing ? outgoing(chunk) : chunk);
-        if (!ret) {
-          socket.pause();
+        if (!state.paused && !ret) {
+          state.paused = true;
+          if (socket.readable && !socket.isPaused()) {
+            socket.pause();
+          }
         }
       } catch (error) {
         state.isConnectorClose = true;
         logger.error(`${error.message}`);
-        socket.destroy();
+        if (!socket.destroyed) {
+          socket.destroy();
+        }
       }
-    } else {
+    } else if (!socket.destroyed) {
       socket.destroy();
     }
   }
