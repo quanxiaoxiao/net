@@ -16,6 +16,8 @@ const connectHandler = (socket, {
     isErrorEmit: false,
 
     isCleanup: false,
+
+    waited: false,
   };
   const handleErrorOnInit = (error) => {
     state.isClose = true;
@@ -66,15 +68,14 @@ const connectHandler = (socket, {
     if (!socket.writable || socket.destroyed) {
       return;
     }
-    let ret = true;
-    const bufSize = bufList.length;
     while (bufList.length > 0) {
-      ret = socket.write(bufList.shift());
+      const ret = socket.write(bufList.shift());
       if (!ret) {
         break;
       }
     }
-    if (bufSize && ret && state.isConnect && onDrain) {
+    state.waited = bufList.length > 0;
+    if (!state.waited && state.isConnect && onDrain) {
       onDrain();
     }
   };
@@ -151,13 +152,13 @@ const connectHandler = (socket, {
   };
 
   connect.pause = () => {
-    if (socket.readable) {
+    if (socket.readable && !socket.isPaused()) {
       socket.pause();
     }
   };
 
   connect.resume = () => {
-    if (socket.readable) {
+    if (socket.readable && socket.isPaused()) {
       socket.resume();
     }
   };
@@ -169,14 +170,20 @@ const connectHandler = (socket, {
     if (!socket.writable) {
       throw new Error('EPIPE');
     }
-    if (bufList.length > 0) {
+    if (state.waited || bufList.length > 0) {
+      if (bufList.length === 0) {
+        process.nextTick(() => {
+          handleDrain();
+        });
+      }
       bufList.push(chunk);
-      process.nextTick(() => {
-        handleDrain();
-      });
       return false;
     }
-    return socket.write(chunk);
+    const ret = socket.write(chunk);
+    if (!ret) {
+      state.waited = true;
+    }
+    return true;
   };
 
   connect.end = () => {
