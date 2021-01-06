@@ -14,9 +14,8 @@ module.exports = ({
 }) => {
   const client = net.Socket();
   const state = {
-    isConnect: true,
+    isActive: true,
     isEnd: false,
-    isClose: false,
 
     isErrorEmit: false,
     isEndEmit: false,
@@ -24,68 +23,61 @@ module.exports = ({
     isCleanup: false,
 
     waited: false,
-  };
 
-  const destroy = () => {
-    if (!client.destroyed) {
-      client.destroy();
-    } else if (state.isConnect && !state.isErrorEmit && !state.isEndEmit) {
-      state.isErrorEmit = true;
-      onError(new Error('socket had a transmission error'));
-      state.isConnect = false;
-      cleanup();
-    }
+    isConnect: false,
   };
 
   const handleConnect = () => {
-    if (state.isConnect) {
+    if (state.isActive) {
       if (onConnect) {
         onConnect(client);
       }
+      state.isConnect = true;
       handleDrain();
-    } else {
-      destroy();
+    } else if (!client.destroyed) {
+      client.destroy();
     }
   };
 
   const handleError = (error) => {
-    state.isClose = true;
-    if (state.isConnect && !state.isErrorEmit && !state.isEndEmit) {
+    if (state.isActive && !state.isErrorEmit && !state.isEndEmit) {
       state.isErrorEmit = true;
       onError(error);
-      state.isConnect = false;
     }
+    state.isActive = false;
     cleanup();
   };
 
   const handleEnd = () => {
-    state.isClose = true;
-    if (state.isConnect && !state.isErrorEmit && !state.isEndEmit) {
+    if (state.isActive && !state.isErrorEmit && !state.isEndEmit) {
       state.isEndEmit = true;
       onEnd();
-      state.isConnect = false;
     }
+    state.isActive = false;
     cleanup();
   };
 
   const handleClose = (hasError) => {
-    state.isClose = true;
-    if (hasError) {
-      if (state.isConnect && !state.isErrorEmit && !state.isEndEmit) {
+    if (state.isActive && !state.isErrorEmit && !state.isEndEmit) {
+      if (hasError) {
         state.isErrorEmit = true;
         onError(new Error('socket had a transmission error'));
-        state.isConnect = false;
+      } else {
+        state.isEndEmit = true;
+        onEnd();
       }
-    } else if (state.isConnect && !state.isErrorEmit && !state.isEndEmit) {
-      state.isEndEmit = true;
-      onEnd();
-      state.isConnect = false;
     }
+    state.isActive = false;
     cleanup();
   };
 
   const handleDrain = () => {
-    if (!client.writable || client.destroyed) {
+    if (!client.writable
+      || client.destroyed
+      || state.isEnd
+      || !state.isConnect
+      || !state.isActive
+    ) {
       return;
     }
     while (bufList.length > 0) {
@@ -95,16 +87,16 @@ module.exports = ({
       }
     }
     state.waited = bufList.length > 0;
-    if (!state.waited && state.isConnect && onDrain) {
+    if (!state.waited && state.isActive && onDrain) {
       onDrain();
     }
   };
 
   const handleData = (chunk) => {
-    if (state.isConnect) {
+    if (state.isActive) {
       onData(chunk);
-    } else {
-      destroy();
+    } else if (!client.destroyed) {
+      client.destroy();
     }
   };
 
@@ -134,8 +126,8 @@ module.exports = ({
   });
 
   const connect = () => {
-    if (state.isConnect) {
-      state.isConnect = false;
+    if (state.isActive) {
+      state.isActive = false;
       if (client.connecting) {
         client.off('connect', handleConnect);
       }
@@ -159,18 +151,14 @@ module.exports = ({
   };
 
   connect.write = (chunk) => {
-    if (!state.isConnect || state.isClose || state.isEnd) {
+    if (!state.isActive || state.isEnd) {
       throw new Error(`connect ECONNREFUSED ${hostname}:${port}`);
     }
-    if (!client.writable && !client.connecting) {
-      throw new Error(`EPIPE ${hostname}:${port}`);
-    }
-    if (client.pending
-      || client.connecting
-      || state.waited
+    if (state.waited
       || bufList.length > 0
+      || !state.isConnect
     ) {
-      if (!client.pending && !client.connecting && bufList.length === 0) {
+      if (state.isConnect && bufList.length === 0) {
         process.nextTick(() => {
           handleDrain();
         });
@@ -186,11 +174,10 @@ module.exports = ({
   };
 
   connect.end = () => {
-    state.isConnect = false;
+    state.isActive = false;
     if (!state.isEnd) {
       state.isEnd = true;
       if (client.connecting) {
-        state.isClose = true;
         client.off('connect', handleConnect);
         client.destroy();
         cleanup();
@@ -208,10 +195,13 @@ module.exports = ({
   };
 
   connect.detach = () => {
-    if (client.destroyed || state.isEnd || state.isClose) {
+    if (client.destroyed
+      || state.isEnd
+      || !state.isActive
+    ) {
       return null;
     }
-    if (client.connecting) {
+    if (!state.isConnect) {
       client.destroy();
       cleanup();
       return null;

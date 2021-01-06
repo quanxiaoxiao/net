@@ -7,13 +7,24 @@ const forward = (socket, {
   incoming,
   outgoing,
   bufList,
-  logger = {
-    info: console.log,
-    error: console.error,
-  },
+  logger,
 }) => {
+  const printError = (...args) => {
+    if (logger && logger.error) {
+      logger.error(...args);
+    }
+  };
+
+  const print = (...args) => {
+    if (logger && logger.info) {
+      logger.info(...args);
+    }
+  };
+  if (socket.destroyed) {
+    return;
+  }
   const state = {
-    isClose: false,
+    isActive: true,
     isConnectorClose: false,
     isCleanup: false,
     paused: false,
@@ -26,7 +37,7 @@ const forward = (socket, {
   socket.once('error', handleError);
   socket.once('close', handleClose);
   socket.once('end', handleEnd);
-  if (!socket.writable || state.isClose) {
+  if (!socket.writable || !state.isActive) {
     if (!state.isCleanup) {
       state.isCleanup = true;
       socket.off('error', handleError);
@@ -37,7 +48,7 @@ const forward = (socket, {
   }
   const start = new Date();
 
-  logger.info(`${sourceHostname} ----- ${destHostname} ${start.getTime()}`);
+  print(`${sourceHostname} ----- ${destHostname} ${start.getTime()}`);
 
   connection = connector({ // eslint-disable-line
     hostname,
@@ -45,11 +56,11 @@ const forward = (socket, {
     bufList,
   }, {
     onData: (chunk) => {
-      if (state.isClose) {
-        logger.error(`${destHostname} -> ${sourceHostname} EPIPE`);
+      if (!state.isActive) {
+        printError(`${destHostname} -> ${sourceHostname} EPIPE`);
         state.isConnectorClose = true;
         connection();
-      } else if (socket.writable) {
+      } else {
         const ret = socket.write(incoming ? incoming(chunk) : chunk);
         if (!ret) {
           connection.pause();
@@ -57,40 +68,37 @@ const forward = (socket, {
       }
     },
     onConnect: () => {
-      if (state.isClose) {
+      if (!state.isActive) {
         state.isConnectorClose = true;
         connection();
       } else {
-        logger.info(`${sourceHostname} -> ${destHostname} ${Date.now() - start.getTime()}ms`);
+        print(`${sourceHostname} -> ${destHostname} ${Date.now() - start.getTime()}ms`);
       }
     },
     onError: (error) => {
       state.isConnectorClose = true;
-      logger.error(`${destHostname} x-> ${error.message}`);
+      printError(`${destHostname} x-> ${error.message}`);
       if (!socket.destroyed) {
         socket.destroy();
       }
     },
     onEnd: () => {
       state.isConnectorClose = true;
-      logger.info(`${destHostname} x-> ${sourceHostname}`);
-      if (socket.writable) {
+      print(`${destHostname} x-> ${sourceHostname}`);
+      if (state.isActive) {
         socket.end();
       }
     },
     onDrain: () => {
-      if (state.paused) {
-        state.paused = false;
-        if (socket.readable && socket.isPaused()) {
-          socket.resume();
-        }
+      if (socket.readable && socket.isPaused()) {
+        socket.resume();
       }
     },
   });
 
   function handleError(error) {
-    logger.error(`${sourceHostname} ${error.message}`);
-    state.isClose = true;
+    printError(`${sourceHostname} ${error.message}`);
+    state.isActive = false;
     if (connection && !state.isConnectorClose) {
       state.isConnectorClose = true;
       connection();
@@ -99,19 +107,19 @@ const forward = (socket, {
   }
 
   function handleClose(hasError) {
-    state.isClose = true;
+    state.isActive = false;
     cleanup();
     if (!connection || state.isConnectorClose) {
       return;
     }
     if (hasError) {
-      logger.error(`${sourceHostname} x-> ${destHostname}`);
+      printError(`${sourceHostname} x-> ${destHostname}`);
       if (!state.isConnectorClose) {
         state.isConnectorClose = true;
         connection();
       }
     } else {
-      logger.info(`${sourceHostname} x-> ${sourceHostname}`);
+      print(`${sourceHostname} x-> ${sourceHostname}`);
       if (!state.isConnectorClose) {
         state.isConnectorClose = true;
         connection.end();
@@ -120,12 +128,12 @@ const forward = (socket, {
   }
 
   function handleEnd() {
-    state.isClose = true;
+    state.isActive = false;
     cleanup();
     if (!connection || state.isConnectorClose) {
       return;
     }
-    logger.info(`${sourceHostname} x-> ${destHostname}`);
+    print(`${sourceHostname} x-> ${destHostname}`);
     if (!state.isConnectorClose) {
       state.isConnectorClose = true;
       connection.end();
@@ -136,15 +144,12 @@ const forward = (socket, {
     if (!state.isConnectorClose) {
       try {
         const ret = connection.write(outgoing ? outgoing(chunk) : chunk);
-        if (!state.paused && !ret) {
-          state.paused = true;
-          if (socket.readable && !socket.isPaused()) {
-            socket.pause();
-          }
+        if (!ret && socket.readable) {
+          socket.pause();
         }
       } catch (error) {
         state.isConnectorClose = true;
-        logger.error(`${error.message}`);
+        printError(`${error.message}`);
         if (!socket.destroyed) {
           socket.destroy();
         }

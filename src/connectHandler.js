@@ -7,10 +7,12 @@ const connectHandler = (socket, {
   onDrain,
   bufList: bList,
 }) => {
+  if (socket.destroyed) {
+    return null;
+  }
   const state = {
-    isConnect: true,
+    isActive: true,
     isEnd: false,
-    isClose: false,
 
     isEndEmit: false,
     isErrorEmit: false,
@@ -20,52 +22,42 @@ const connectHandler = (socket, {
     waited: false,
   };
   const handleErrorOnInit = (error) => {
-    state.isClose = true;
-    if (state.isConnect && !state.isErrorEmit && !state.isEndEmit) {
+    if (state.isActive && !state.isErrorEmit && !state.isEndEmit) {
       state.isErrorEmit = true;
       onError(error);
-      state.isConnect = false;
     }
-  };
-
-  const destroy = () => {
-    if (!socket.destroyed) {
-      socket.destroy();
-    } else if (state.isConnect && !state.isErrorEmit && !state.isEndEmit) {
-      state.isErrorEmit = true;
-      onError(new Error('socket had a transmission error'));
-      state.isConnect = false;
-      cleanup();
-    }
+    state.isActive = false;
   };
 
   socket.once('error', handleErrorOnInit);
 
-  if (socket.connecting || socket.pending) {
-    if (state.isConnect && !state.isErrorEmit && !state.isEndEmit) {
-      state.isErrorEmit = true;
-      onError(new Error('socket is not connect'));
-      state.isConnect = false;
+  if (socket.connecting || socket.pending || !socket.writable) {
+    if (state.isActive) {
+      if (!state.isErrorEmit && !state.isEndEmit) {
+        state.isErrorEmit = true;
+        onError(new Error(socket.connecting || socket.pending ? 'socket is not connect' : 'socket has closed'));
+      }
+      state.isActive = false;
     }
     if (!socket.destroyed) {
       socket.destroy();
     }
+    socket.off('error', handleErrorOnInit);
     return null;
   }
 
-  if (!socket.writable || state.isClose) {
-    if (state.isConnect && !state.isErrorEmit && !state.isEndEmit) {
-      state.isErrorEmit = true;
-      onError(new Error('socket has closed'));
-      state.isConnect = false;
-    }
+  if (!state.isActive) {
     return null;
   }
 
   const bufList = [...(bList || [])];
 
   const handleDrain = () => {
-    if (!socket.writable || socket.destroyed) {
+    if (!socket.writable
+      || socket.destroyed
+      || state.isEnd
+      || !state.isActive
+    ) {
       return;
     }
     while (bufList.length > 0) {
@@ -75,52 +67,48 @@ const connectHandler = (socket, {
       }
     }
     state.waited = bufList.length > 0;
-    if (!state.waited && state.isConnect && onDrain) {
+    if (!state.waited && state.isActive && onDrain) {
       onDrain();
     }
   };
 
   const handleData = (chunk) => {
-    if (state.isConnect) {
+    if (state.isActive) {
       onData(chunk);
-    } else {
-      destroy();
+    } else if (socket.destroyed) {
+      socket.destroy();
     }
   };
 
   const handleError = (error) => {
-    state.isClose = true;
-    if (state.isConnect && !state.isErrorEmit && !state.isEndEmit) {
+    if (state.isActive && !state.isErrorEmit && !state.isEndEmit) {
       state.isErrorEmit = true;
       onError(error);
-      state.isConnect = false;
     }
+    state.isActive = false;
     cleanup();
   };
 
   const handleEnd = () => {
-    state.isClose = true;
-    if (state.isConnect && !state.isErrorEmit && !state.isEndEmit) {
+    if (state.isActive && !state.isErrorEmit && !state.isEndEmit) {
       state.isEndEmit = true;
       onEnd();
-      state.isConnect = false;
     }
+    state.isActive = false;
     cleanup();
   };
 
   const handleClose = (hasError) => {
-    state.isClose = true;
-    if (hasError) {
-      if (state.isConnect && !state.isErrorEmit && !state.isEndEmit) {
+    if (state.isActive && !state.isErrorEmit && !state.isEndEmit) {
+      if (hasError) {
         state.isErrorEmit = true;
         onError(new Error('socket had a transmission error'));
-        state.isConnect = false;
+      } else {
+        state.isEndEmit = true;
+        onEnd();
       }
-    } else if (state.isConnect && !state.isErrorEmit && !state.isEndEmit) {
-      state.isEndEmit = true;
-      onEnd();
-      state.isConnect = false;
     }
+    state.isActive = false;
     cleanup();
   };
 
@@ -142,8 +130,8 @@ const connectHandler = (socket, {
   }
 
   const connect = () => {
-    if (state.isConnect) {
-      state.isConnect = false;
+    if (state.isActive) {
+      state.isActive = false;
       if (!socket.destroyed) {
         socket.destroy();
       }
@@ -164,11 +152,8 @@ const connectHandler = (socket, {
   };
 
   connect.write = (chunk) => {
-    if (!state.isConnect || state.isClose || state.isEnd) {
+    if (!state.isActive || state.isEnd) {
       throw new Error('connect ECONNREFUSED');
-    }
-    if (!socket.writable) {
-      throw new Error('EPIPE');
     }
     if (state.waited || bufList.length > 0) {
       if (bufList.length === 0) {
@@ -187,7 +172,7 @@ const connectHandler = (socket, {
   };
 
   connect.end = () => {
-    state.isConnect = false;
+    state.isActive = false;
     if (!state.isEnd) {
       state.isEnd = true;
       if (socket.writable) {

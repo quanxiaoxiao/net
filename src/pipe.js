@@ -11,10 +11,22 @@ module.exports = (
   let destWrapper;
   const destHostname = `${dest.remoteAddress}:${dest.remotePort}`;
   const sourceHostname = `${source.remoteAddress}:${source.remotePort}`;
+  const state = {
+    isConnect: false,
+    destroyed: false,
+  };
+  const sourceBufList = [];
+  const destBufList = [];
+
   const sourceWrapper = connectHandler(source, {
     onData: (chunk) => {
-      if (!destWrapper) {
+      if (state.destroyed) {
         sourceWrapper();
+        return;
+      }
+      if (!state.isConnect) {
+        sourceBufList.push(chunk);
+        sourceWrapper.pause();
         return;
       }
       try {
@@ -25,55 +37,95 @@ module.exports = (
       } catch (error) {
         logger.error(error);
         sourceWrapper();
+        state.destroyed = true;
       }
     },
     onError: (error) => {
+      logger.error(error);
       if (destWrapper) {
-        logger.error(`${sourceHostname} ${error.message}`);
         destWrapper();
       }
+      state.destroyed = true;
     },
     onEnd: () => {
+      logger.info(`${sourceHostname} x->`);
       if (destWrapper) {
-        logger.info(`${sourceHostname} x->`);
         destWrapper.end();
       }
+      state.destroyed = true;
     },
     onDrain: () => {
-      if (!destWrapper) {
-        sourceWrapper();
-      } else {
+      if (destWrapper) {
         destWrapper.resume();
       }
     },
   });
-  if (sourceWrapper) {
-    destWrapper = connectHandler(dest, {
-      onData: (chunk) => {
-        try {
-          const ret = sourceWrapper.write(chunk);
-          if (!ret) {
-            destWrapper.pause();
-          }
-        } catch (error) {
-          logger.error(error);
-          destWrapper();
-        }
-      },
-      onError: (error) => {
-        logger.error(`${destHostname} ${error.message}`);
-        sourceWrapper();
-      },
-      onEnd: () => {
-        logger.info(`<-x ${destHostname}`);
-        sourceWrapper.end();
-      },
-      onDrain: () => {
-        sourceWrapper.resume();
-      },
-    });
-    if (!destWrapper) {
-      sourceWrapper();
+  if (!sourceWrapper || state.destroyed) {
+    if (!dest.destroyed) {
+      dest.destroy();
     }
+    state.destroyed = true;
+    return;
+  }
+  destWrapper = connectHandler(dest, {
+    onData: (chunk) => {
+      if (state.destroyed) {
+        destWrapper();
+        return;
+      }
+      if (!state.isConnect) {
+        destBufList.push(chunk);
+        destWrapper.pause();
+        return;
+      }
+      try {
+        const ret = sourceWrapper.write(chunk);
+        if (!ret) {
+          destWrapper.pause();
+        }
+      } catch (error) {
+        logger.error(error);
+        destWrapper();
+        state.destroyed = true;
+      }
+    },
+    onError: (error) => {
+      logger.error(error);
+      sourceWrapper();
+      state.destroyed = true;
+    },
+    onEnd: () => {
+      logger.info(`<-x ${destHostname}`);
+      sourceWrapper.end();
+      state.destroyed = true;
+    },
+    onDrain: () => {
+      sourceWrapper.resume();
+    },
+  });
+  if (!destWrapper) {
+    sourceWrapper();
+    state.destroyed = true;
+  } else {
+    try {
+      while (destBufList.length > 0) {
+        sourceWrapper.write(destBufList.shift());
+      }
+      while (sourceBufList.length > 0) {
+        destWrapper.write(sourceBufList.shift());
+      }
+    } catch (error) {
+      logger.error(error);
+      sourceWrapper();
+      destWrapper();
+      state.destroyed = true;
+    }
+    process.nextTick(() => {
+      if (!state.destroyed) {
+        destWrapper.resume();
+        sourceWrapper.resume();
+        state.isConnect = true;
+      }
+    });
   }
 };
