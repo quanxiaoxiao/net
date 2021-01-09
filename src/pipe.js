@@ -55,7 +55,7 @@ module.exports = (
       state.destroyed = true;
     },
     onDrain: () => {
-      if (destWrapper) {
+      if (state.isConnect) {
         destWrapper.resume();
       }
     },
@@ -100,7 +100,9 @@ module.exports = (
       state.destroyed = true;
     },
     onDrain: () => {
-      sourceWrapper.resume();
+      if (state.isConnect) {
+        sourceWrapper.resume();
+      }
     },
   });
   if (!destWrapper) {
@@ -122,9 +124,9 @@ module.exports = (
     }
     process.nextTick(() => {
       if (!state.destroyed) {
+        state.isConnect = true;
         destWrapper.resume();
         sourceWrapper.resume();
-        state.isConnect = true;
       }
     });
   }

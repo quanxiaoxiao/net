@@ -5,6 +5,7 @@ module.exports = ({
   hostname,
   port,
   bufList = [],
+  timeout,
 }, {
   onData,
   onConnect,
@@ -13,6 +14,7 @@ module.exports = ({
   onDrain,
 }) => {
   const client = net.Socket();
+  const destBufList = [];
   const state = {
     isActive: true,
     isEnd: false,
@@ -29,11 +31,28 @@ module.exports = ({
 
   const handleConnect = () => {
     if (state.isActive) {
-      if (onConnect) {
-        onConnect(client);
+      while (bufList.length > 0) {
+        client.write(bufList.shift());
       }
-      state.isConnect = true;
-      handleDrain();
+      process.nextTick(() => {
+        if (state.isActive) {
+          state.isConnect = true;
+          if (onConnect) {
+            onConnect(client);
+          }
+          while (destBufList.length > 0 && state.isActive) {
+            onData(destBufList.shift());
+          }
+        }
+      });
+    } else if (!client.destroyed) {
+      client.destroy();
+    }
+  };
+
+  const handleTimeout = () => {
+    if (state.isActive) {
+      client.end();
     } else if (!client.destroyed) {
       client.destroy();
     }
@@ -49,7 +68,10 @@ module.exports = ({
   };
 
   const handleEnd = () => {
-    if (state.isActive && !state.isErrorEmit && !state.isEndEmit) {
+    if (!state.isEnd
+      && state.isActive
+      && !state.isErrorEmit
+      && !state.isEndEmit) {
       state.isEndEmit = true;
       onEnd();
     }
@@ -62,7 +84,7 @@ module.exports = ({
       if (hasError) {
         state.isErrorEmit = true;
         onError(new Error('socket had a transmission error'));
-      } else {
+      } else if (!state.isEnd) {
         state.isEndEmit = true;
         onEnd();
       }
@@ -74,9 +96,9 @@ module.exports = ({
   const handleDrain = () => {
     if (!client.writable
       || client.destroyed
+      || !state.isActive
       || state.isEnd
       || !state.isConnect
-      || !state.isActive
     ) {
       return;
     }
@@ -94,7 +116,11 @@ module.exports = ({
 
   const handleData = (chunk) => {
     if (state.isActive) {
-      onData(chunk);
+      if (state.isConnect) {
+        onData(chunk);
+      } else {
+        destBufList.push(chunk);
+      }
     } else if (!client.destroyed) {
       client.destroy();
     }
@@ -106,12 +132,19 @@ module.exports = ({
   client.once('close', handleClose);
   client.on('data', handleData);
   client.on('drain', handleDrain);
+  if (timeout) {
+    client.setTimeout(timeout);
+    client.once('timeout', handleTimeout);
+  }
 
   function cleanup() {
     if (!state.isCleanup) {
       state.isCleanup = true;
       if (client.connecting) {
         client.off('connect', handleConnect);
+      }
+      if (timeout) {
+        client.off('timeout', handleTimeout);
       }
       client.off('drain', handleDrain);
       client.off('data', handleData);
@@ -174,22 +207,31 @@ module.exports = ({
   };
 
   connect.end = () => {
+    if (!state.isActive) {
+      return;
+    }
     state.isActive = false;
-    if (!state.isEnd) {
-      state.isEnd = true;
+    if (!state.isConnect) {
       if (client.connecting) {
         client.off('connect', handleConnect);
+      }
+      if (!client.destroyed) {
         client.destroy();
-        cleanup();
-      } else if (client.writable) {
-        if (bufList.length > 0) {
-          client.end(Buffer.concat(bufList));
-          while (bufList.length !== 0) {
-            bufList.pop();
-          }
-        } else {
-          client.end();
+      }
+      return;
+    }
+    if (state.isEnd) {
+      return;
+    }
+    state.isEnd = true;
+    if (client.writable) {
+      if (bufList.length > 0) {
+        client.end(Buffer.concat(bufList));
+        while (bufList.length !== 0) {
+          bufList.pop();
         }
+      } else {
+        client.end();
       }
     }
   };

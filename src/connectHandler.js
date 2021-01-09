@@ -6,6 +6,7 @@ const connectHandler = (socket, {
   onEnd,
   onDrain,
   bufList: bList,
+  timeout,
 }) => {
   if (socket.destroyed) {
     return null;
@@ -103,7 +104,7 @@ const connectHandler = (socket, {
       if (hasError) {
         state.isErrorEmit = true;
         onError(new Error('socket had a transmission error'));
-      } else {
+      } else if (!state.isEnd) {
         state.isEndEmit = true;
         onEnd();
       }
@@ -112,12 +113,24 @@ const connectHandler = (socket, {
     cleanup();
   };
 
+  const handleTimeout = () => {
+    if (state.isActive) {
+      socket.end();
+    } else if (!socket.destroyed) {
+      socket.destroy();
+    }
+  };
+
   socket.once('error', handleError);
   socket.off('error', handleErrorOnInit);
-  socket.on('data', handleData);
-  socket.on('drain', handleDrain);
   socket.once('end', handleEnd);
   socket.once('close', handleClose);
+  socket.on('data', handleData);
+  socket.on('drain', handleDrain);
+  if (timeout) {
+    socket.setTimeout(timeout);
+    socket.once('timeout', handleTimeout);
+  }
 
   function cleanup() {
     if (!state.isCleanup) {
@@ -126,6 +139,9 @@ const connectHandler = (socket, {
       socket.off('data', handleData);
       socket.off('end', handleEnd);
       socket.off('close', handleClose);
+      if (timeout) {
+        socket.off('timeout', handleTimeout);
+      }
     }
   }
 
@@ -172,18 +188,22 @@ const connectHandler = (socket, {
   };
 
   connect.end = () => {
+    if (!state.isActive) {
+      return;
+    }
     state.isActive = false;
-    if (!state.isEnd) {
-      state.isEnd = true;
-      if (socket.writable) {
-        if (bufList.length > 0) {
-          socket.end(Buffer.concat(bufList));
-          while (bufList.length !== 0) {
-            bufList.pop();
-          }
-        } else {
-          socket.end();
+    if (state.isEnd) {
+      return;
+    }
+    state.isEnd = true;
+    if (socket.writable) {
+      if (bufList.length > 0) {
+        socket.end(Buffer.concat(bufList));
+        while (bufList.length !== 0) {
+          bufList.pop();
         }
+      } else {
+        socket.end();
       }
     }
   };
