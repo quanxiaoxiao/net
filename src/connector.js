@@ -14,7 +14,6 @@ module.exports = ({
   onDrain,
 }) => {
   const client = net.Socket();
-  const destBufList = [];
   const state = {
     isActive: true,
     isEnd: false,
@@ -29,19 +28,25 @@ module.exports = ({
     isConnect: false,
   };
 
+  const getStateEmitable = () => !state.isEnd
+    && state.isActive
+    && !state.isErrorEmit
+    && !state.isEndEmit;
+
   const handleConnect = () => {
     if (state.isActive) {
+      const isDrainEmit = bufList.length > 0;
       while (bufList.length > 0) {
         client.write(bufList.shift());
       }
       process.nextTick(() => {
         if (state.isActive) {
           state.isConnect = true;
-          if (onConnect) {
+          if (!state.isEnd && onConnect) {
             onConnect(client);
           }
-          while (destBufList.length > 0 && state.isActive) {
-            onData(destBufList.shift());
+          if (!state.isEnd && isDrainEmit && onDrain) {
+            onDrain();
           }
         }
       });
@@ -51,15 +56,11 @@ module.exports = ({
   };
 
   const handleTimeout = () => {
-    if (state.isActive) {
-      client.end();
-    } else if (!client.destroyed) {
-      client.destroy();
-    }
+    client.end();
   };
 
   const handleError = (error) => {
-    if (state.isActive && !state.isErrorEmit && !state.isEndEmit) {
+    if (getStateEmitable()) {
       state.isErrorEmit = true;
       onError(error);
     }
@@ -68,10 +69,7 @@ module.exports = ({
   };
 
   const handleEnd = () => {
-    if (!state.isEnd
-      && state.isActive
-      && !state.isErrorEmit
-      && !state.isEndEmit) {
+    if (getStateEmitable()) {
       state.isEndEmit = true;
       onEnd();
     }
@@ -80,11 +78,11 @@ module.exports = ({
   };
 
   const handleClose = (hasError) => {
-    if (state.isActive && !state.isErrorEmit && !state.isEndEmit) {
+    if (getStateEmitable()) {
       if (hasError) {
         state.isErrorEmit = true;
         onError(new Error('socket had a transmission error'));
-      } else if (!state.isEnd) {
+      } else {
         state.isEndEmit = true;
         onEnd();
       }
@@ -94,14 +92,6 @@ module.exports = ({
   };
 
   const handleDrain = () => {
-    if (!client.writable
-      || client.destroyed
-      || !state.isActive
-      || state.isEnd
-      || !state.isConnect
-    ) {
-      return;
-    }
     while (bufList.length > 0) {
       const ret = client.write(bufList.shift());
       if (!ret) {
@@ -109,20 +99,19 @@ module.exports = ({
       }
     }
     state.waited = bufList.length > 0;
-    if (!state.waited && state.isActive && onDrain) {
+    if (!state.waited
+      && !state.isEnd
+      && state.isActive
+      && onDrain) {
       onDrain();
     }
   };
 
   const handleData = (chunk) => {
     if (state.isActive) {
-      if (state.isConnect) {
-        onData(chunk);
-      } else {
-        destBufList.push(chunk);
-      }
-    } else if (!client.destroyed) {
-      client.destroy();
+      onData(chunk);
+    } else {
+      client.off('data', handleData);
     }
   };
 
@@ -132,7 +121,7 @@ module.exports = ({
   client.once('close', handleClose);
   client.on('data', handleData);
   client.on('drain', handleDrain);
-  if (timeout) {
+  if (timeout != null) {
     client.setTimeout(timeout);
     client.once('timeout', handleTimeout);
   }
@@ -143,7 +132,7 @@ module.exports = ({
       if (client.connecting) {
         client.off('connect', handleConnect);
       }
-      if (timeout) {
+      if (timeout != null) {
         client.off('timeout', handleTimeout);
       }
       client.off('drain', handleDrain);
@@ -191,11 +180,6 @@ module.exports = ({
       || bufList.length > 0
       || !state.isConnect
     ) {
-      if (state.isConnect && bufList.length === 0) {
-        process.nextTick(() => {
-          handleDrain();
-        });
-      }
       bufList.push(chunk);
       return false;
     }
@@ -207,32 +191,24 @@ module.exports = ({
   };
 
   connect.end = () => {
-    if (!state.isActive) {
+    if (!state.isActive || state.isEnd) {
       return;
     }
-    state.isActive = false;
+    client.off('data', handleData);
+    client.off('drain', handleDrain);
+    state.isEnd = true;
     if (!state.isConnect) {
+      state.isActive = false;
       if (client.connecting) {
         client.off('connect', handleConnect);
       }
       if (!client.destroyed) {
         client.destroy();
       }
-      return;
-    }
-    if (state.isEnd) {
-      return;
-    }
-    state.isEnd = true;
-    if (client.writable) {
-      if (bufList.length > 0) {
-        client.end(Buffer.concat(bufList));
-        while (bufList.length !== 0) {
-          bufList.pop();
-        }
-      } else {
-        client.end();
-      }
+    } else if (bufList.length > 0) {
+      client.end(Buffer.concat(bufList));
+    } else {
+      client.end();
     }
   };
 

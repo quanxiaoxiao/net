@@ -22,8 +22,13 @@ const connectHandler = (socket, {
 
     waited: false,
   };
+  const getStateEmitable = () => !state.isEnd
+    && state.isActive
+    && !state.isErrorEmit
+    && !state.isEndEmit;
+
   const handleErrorOnInit = (error) => {
-    if (state.isActive && !state.isErrorEmit && !state.isEndEmit) {
+    if (getStateEmitable()) {
       state.isErrorEmit = true;
       onError(error);
     }
@@ -34,7 +39,7 @@ const connectHandler = (socket, {
 
   if (socket.connecting || socket.pending || !socket.writable) {
     if (state.isActive) {
-      if (!state.isErrorEmit && !state.isEndEmit) {
+      if (getStateEmitable()) {
         state.isErrorEmit = true;
         onError(new Error(socket.connecting || socket.pending ? 'socket is not connect' : 'socket has closed'));
       }
@@ -54,13 +59,6 @@ const connectHandler = (socket, {
   const bufList = [...(bList || [])];
 
   const handleDrain = () => {
-    if (!socket.writable
-      || socket.destroyed
-      || state.isEnd
-      || !state.isActive
-    ) {
-      return;
-    }
     while (bufList.length > 0) {
       const ret = socket.write(bufList.shift());
       if (!ret) {
@@ -68,7 +66,10 @@ const connectHandler = (socket, {
       }
     }
     state.waited = bufList.length > 0;
-    if (!state.waited && state.isActive && onDrain) {
+    if (!state.waited
+      && !state.isEnd
+      && state.isActive
+      && onDrain) {
       onDrain();
     }
   };
@@ -76,13 +77,13 @@ const connectHandler = (socket, {
   const handleData = (chunk) => {
     if (state.isActive) {
       onData(chunk);
-    } else if (socket.destroyed) {
-      socket.destroy();
+    } else {
+      socket.off('data', handleData);
     }
   };
 
   const handleError = (error) => {
-    if (state.isActive && !state.isErrorEmit && !state.isEndEmit) {
+    if (getStateEmitable()) {
       state.isErrorEmit = true;
       onError(error);
     }
@@ -91,7 +92,7 @@ const connectHandler = (socket, {
   };
 
   const handleEnd = () => {
-    if (state.isActive && !state.isErrorEmit && !state.isEndEmit) {
+    if (getStateEmitable()) {
       state.isEndEmit = true;
       onEnd();
     }
@@ -100,11 +101,11 @@ const connectHandler = (socket, {
   };
 
   const handleClose = (hasError) => {
-    if (state.isActive && !state.isErrorEmit && !state.isEndEmit) {
+    if (getStateEmitable()) {
       if (hasError) {
         state.isErrorEmit = true;
         onError(new Error('socket had a transmission error'));
-      } else if (!state.isEnd) {
+      } else {
         state.isEndEmit = true;
         onEnd();
       }
@@ -114,11 +115,7 @@ const connectHandler = (socket, {
   };
 
   const handleTimeout = () => {
-    if (state.isActive) {
-      socket.end();
-    } else if (!socket.destroyed) {
-      socket.destroy();
-    }
+    socket.end();
   };
 
   socket.once('error', handleError);
@@ -127,7 +124,7 @@ const connectHandler = (socket, {
   socket.once('close', handleClose);
   socket.on('data', handleData);
   socket.on('drain', handleDrain);
-  if (timeout) {
+  if (timeout != null) {
     socket.setTimeout(timeout);
     socket.once('timeout', handleTimeout);
   }
@@ -139,7 +136,7 @@ const connectHandler = (socket, {
       socket.off('data', handleData);
       socket.off('end', handleEnd);
       socket.off('close', handleClose);
-      if (timeout) {
+      if (timeout != null) {
         socket.off('timeout', handleTimeout);
       }
     }
@@ -172,11 +169,6 @@ const connectHandler = (socket, {
       throw new Error('connect ECONNREFUSED');
     }
     if (state.waited || bufList.length > 0) {
-      if (bufList.length === 0) {
-        process.nextTick(() => {
-          handleDrain();
-        });
-      }
       bufList.push(chunk);
       return false;
     }
@@ -188,23 +180,15 @@ const connectHandler = (socket, {
   };
 
   connect.end = () => {
-    if (!state.isActive) {
+    if (!state.isActive || state.isEnd) {
       return;
     }
-    state.isActive = false;
-    if (state.isEnd) {
-      return;
-    }
+    socket.off('data', handleData);
     state.isEnd = true;
-    if (socket.writable) {
-      if (bufList.length > 0) {
-        socket.end(Buffer.concat(bufList));
-        while (bufList.length !== 0) {
-          bufList.pop();
-        }
-      } else {
-        socket.end();
-      }
+    if (bufList.length > 0) {
+      socket.end(Buffer.concat(bufList));
+    } else {
+      socket.end();
     }
   };
 

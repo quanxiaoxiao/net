@@ -27,7 +27,6 @@ const forward = (socket, {
   }
   const state = {
     isActive: true,
-    isConnectorClose: false,
     isCleanup: false,
     isConnect: false,
   };
@@ -62,7 +61,6 @@ const forward = (socket, {
   }, {
     onConnect: () => {
       if (!state.isActive) {
-        state.isConnectorClose = true;
         connection();
       } else {
         print(`${sourceHostname} -> ${destHostname} ${Date.now() - start.getTime()}ms`);
@@ -78,7 +76,6 @@ const forward = (socket, {
     onData: (chunk) => {
       if (!state.isActive) {
         printError(`${destHostname} -> ${sourceHostname} EPIPE`);
-        state.isConnectorClose = true;
         connection();
       } else {
         const ret = socket.write(incoming ? incoming(chunk) : chunk);
@@ -88,20 +85,16 @@ const forward = (socket, {
       }
     },
     onError: (error) => {
-      state.isConnectorClose = true;
       printError(`${destHostname} x-> ${error.message}`);
-      if (!socket.destroyed) {
+      if (state.isActive) {
         socket.destroy();
       }
-      state.isActive = false;
     },
     onEnd: () => {
-      state.isConnectorClose = true;
       print(`${destHostname} x-> ${sourceHostname}`);
-      if (state.isActive && socket.writable) {
+      if (state.isActive) {
         socket.end();
       }
-      state.isActive = false;
     },
     onDrain: () => {
       if (socket.readable && socket.isPaused()) {
@@ -111,70 +104,64 @@ const forward = (socket, {
   });
 
   function handleError(error) {
-    printError(`${sourceHostname} ${error.message}`);
-    state.isActive = false;
-    cleanup();
-    if (connection && !state.isConnectorClose) {
-      state.isConnectorClose = true;
-      connection();
+    if (state.isActive) {
+      state.isActive = false;
+      printError(`${sourceHostname} ${error.message}`);
+      cleanup();
+      if (connection) {
+        connection();
+      }
     }
   }
 
   function handleClose(hasError) {
-    state.isActive = false;
-    cleanup();
-    if (!connection || state.isConnectorClose) {
-      return;
-    }
-    printError(`${sourceHostname} x-> ${destHostname}`);
-    if (!state.isConnectorClose) {
-      state.isConnectorClose = true;
-      if (hasError) {
-        connection();
-      } else {
-        connection.end();
+    if (state.isActive) {
+      state.isActive = false;
+      cleanup();
+      if (connection) {
+        printError(`${sourceHostname} x-> ${destHostname}`);
+        if (hasError) {
+          connection();
+        } else {
+          connection.end();
+        }
       }
     }
   }
 
   function handleEnd() {
-    state.isActive = false;
-    cleanup();
-    if (!connection || state.isConnectorClose) {
-      return;
-    }
-    print(`${sourceHostname} x-> ${destHostname}`);
-    if (!state.isConnectorClose) {
-      state.isConnectorClose = true;
-      connection.end();
+    if (state.isActive) {
+      state.isActive = false;
+      cleanup();
+      if (connection) {
+        print(`${sourceHostname} x-> ${destHostname}`);
+        connection.end();
+      }
     }
   }
 
   function handleTimeout() {
     if (state.isActive) {
       socket.end();
-    } else if (state.isConnectorClose) {
-      state.isConnectorClose = true;
-      connection();
     }
   }
 
   function handleData(chunk) {
-    if (!state.isConnectorClose) {
+    if (!state.isActive) {
+      socket.off('data', handleData);
+      if (!socket.destroyed) {
+        socket.destroy();
+      }
+    } else {
       try {
         const ret = connection.write(outgoing ? outgoing(chunk) : chunk);
         if (!ret && !socket.isPaused()) {
           socket.pause();
         }
       } catch (error) {
-        state.isConnectorClose = true;
         printError(error.message);
-        if (!socket.destroyed) {
-          socket.destroy();
-        }
+        socket.destroy();
       }
-    } else if (!socket.destroyed) {
-      socket.destroy();
     }
   }
 
@@ -184,7 +171,7 @@ const forward = (socket, {
 
   socket.on('drain', handleDrain);
   socket.on('data', handleData);
-  if (timeout) {
+  if (timeout != null) {
     socket.on('timeout', handleTimeout);
   }
 
@@ -195,7 +182,7 @@ const forward = (socket, {
       socket.off('drain', handleDrain);
       socket.off('close', handleClose);
       socket.off('end', handleEnd);
-      if (timeout) {
+      if (timeout != null) {
         socket.off('timeout', handleTimeout);
       }
     }
