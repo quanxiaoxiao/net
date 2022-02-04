@@ -1,5 +1,6 @@
 /* eslint no-use-before-define: 0 */
 const net = require('net');
+const dns = require('dns');
 
 module.exports = ({
   hostname,
@@ -121,6 +122,7 @@ module.exports = ({
   client.once('close', handleClose);
   client.on('data', handleData);
   client.on('drain', handleDrain);
+
   if (timeout != null) {
     client.setTimeout(timeout);
     client.once('timeout', handleTimeout);
@@ -145,6 +147,11 @@ module.exports = ({
   client.connect({
     host: hostname,
     port,
+    lookup: (host, options, cb) => dns.lookup(host, {
+      ...options,
+      family: 6,
+      hints: dns.ADDRCONFIG | dns.V4MAPPED,
+    }, cb),
   });
 
   const connect = () => {

@@ -64,7 +64,7 @@ const forward = (socket, {
         connection();
       } else {
         print(`${sourceHostname} -> ${destHostname} ${Date.now() - start.getTime()}ms`);
-        start.isConnect = true;
+        state.isConnect = true;
         process.nextTick(() => {
           if (state.isActive) {
             connection.resume();
@@ -146,9 +146,9 @@ const forward = (socket, {
     }
   }
 
-  function handleData(chunk) {
+  function handleDataOnOutgoing(chunk) {
     if (!state.isActive) {
-      socket.off('data', handleData);
+      socket.off('data', handleDataOnOutgoing);
       if (!socket.destroyed) {
         socket.destroy();
       }
@@ -170,7 +170,7 @@ const forward = (socket, {
   }
 
   socket.on('drain', handleDrain);
-  socket.on('data', handleData);
+  socket.on('data', handleDataOnOutgoing);
   if (timeout != null) {
     socket.on('timeout', handleTimeout);
   }
@@ -178,7 +178,7 @@ const forward = (socket, {
   function cleanup() {
     if (!state.isCleanup) {
       state.isCleanup = true;
-      socket.off('data', handleData);
+      socket.off('data', handleDataOnOutgoing);
       socket.off('drain', handleDrain);
       socket.off('close', handleClose);
       socket.off('end', handleEnd);
