@@ -1,8 +1,8 @@
 /* eslint no-use-before-define: 0 */
-const net = require('net');
-const dns = require('dns');
+import net from 'node:net';
+import dns from 'node:dns';
 
-module.exports = ({
+export default ({
   hostname,
   port,
   bufList = [],
@@ -181,7 +181,7 @@ module.exports = ({
 
   connect.write = (chunk) => {
     if (!state.isActive || state.isEnd) {
-      throw new Error(`connect ECONNREFUSED ${hostname}:${port}`);
+      throw new Error(`socket has close ${hostname}:${port}`);
     }
     if (state.waited
       || bufList.length > 0

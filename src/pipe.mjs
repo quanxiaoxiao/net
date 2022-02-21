@@ -1,12 +1,9 @@
-const connectHandler = require('./connectHandler');
+import connectHandler from './connectHandler.mjs';
 
-module.exports = (
+export default (
   source,
   dest,
-  logger = {
-    error: console.error,
-    info: console.log,
-  },
+  logger,
 ) => {
   let destWrapper;
   const destHostname = `${dest.remoteAddress}:${dest.remotePort}`;
@@ -17,6 +14,21 @@ module.exports = (
   };
   const sourceBufList = [];
   const destBufList = [];
+
+  const printError = (error) => {
+    if (process.env.NODE_ENV === 'development') {
+      console.error(error);
+    }
+    if (logger && logger.warn) {
+      logger.warn(error.message);
+    }
+  };
+
+  const print = (message) => {
+    if (logger && logger.info) {
+      logger.info(message);
+    }
+  };
 
   const sourceWrapper = connectHandler(source, {
     onData: (chunk) => {
@@ -35,20 +47,20 @@ module.exports = (
           sourceWrapper.pause();
         }
       } catch (error) {
-        logger.error(error);
+        printError(error);
         sourceWrapper();
         state.destroyed = true;
       }
     },
     onError: (error) => {
-      logger.error(error);
+      printError(error);
       if (destWrapper) {
         destWrapper();
       }
       state.destroyed = true;
     },
     onEnd: () => {
-      logger.info(`${sourceHostname} x->`);
+      print(`${sourceHostname} x->`);
       if (destWrapper) {
         destWrapper.end();
       }
@@ -84,18 +96,18 @@ module.exports = (
           destWrapper.pause();
         }
       } catch (error) {
-        logger.error(error);
+        printError(error);
         destWrapper();
         state.destroyed = true;
       }
     },
     onError: (error) => {
-      logger.error(error);
+      printError(error);
       sourceWrapper();
       state.destroyed = true;
     },
     onEnd: () => {
-      logger.info(`<-x ${destHostname}`);
+      print(`<-x ${destHostname}`);
       sourceWrapper.end();
       state.destroyed = true;
     },
@@ -117,7 +129,7 @@ module.exports = (
         destWrapper.write(sourceBufList.shift());
       }
     } catch (error) {
-      logger.error(error);
+      printError(error);
       sourceWrapper();
       destWrapper();
       state.destroyed = true;

@@ -1,6 +1,6 @@
 /* eslint no-use-before-define: 0 */
 
-const connectHandler = (socket, {
+export default (socket, {
   onData,
   onError,
   onEnd,
@@ -198,5 +198,3 @@ const connectHandler = (socket, {
 
   return connect;
 };
-
-module.exports = connectHandler;

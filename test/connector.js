@@ -1,7 +1,6 @@
-const net = require('net');
-const test = require('ava');
-const connector = require('../src/connector');
-
+import net from 'net';
+import test from 'ava';
+import connector from '../src/connector.mjs';
 
 test.cb('onError', (t) => {
   t.plan(1);
@@ -31,7 +30,7 @@ test.cb('onError', (t) => {
 });
 
 test.cb('connect', (t) => {
-  t.plan(3);
+  t.plan(2);
   const server = net.createServer((socket) => {
     setTimeout(() => {
       socket.end();
@@ -52,7 +51,7 @@ test.cb('connect', (t) => {
         t.pass();
       },
       onDrain: () => {
-        t.pass();
+        t.fail();
       },
       onConnect: () => {
         t.pass();
@@ -154,7 +153,6 @@ test.cb('write', (t) => {
   }, 1000);
 });
 
-
 test.cb('end', (t) => {
   t.plan(3);
   const server = net.createServer((socket) => {
@@ -194,7 +192,6 @@ test.cb('end', (t) => {
   setTimeout(() => {
     connection.end();
   }, 500);
-
 
   setTimeout(() => {
     server.close();
@@ -296,7 +293,6 @@ test.cb('error close', (t) => {
       });
     });
   }, 500);
-
 
   setTimeout(() => {
     server.close();

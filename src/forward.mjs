@@ -1,7 +1,7 @@
 /* eslint no-use-before-define: 0 */
-const connector = require('./connector');
+import connector from './connector.mjs';
 
-const forward = (socket, {
+export default (socket, {
   hostname,
   port,
   incoming,
@@ -10,9 +10,12 @@ const forward = (socket, {
   logger,
   timeout,
 }) => {
-  const printError = (...args) => {
-    if (logger && logger.error) {
-      logger.error(...args);
+  const printError = (error) => {
+    if (process.env.NODE_ENV === 'development') {
+      console.error(error);
+    }
+    if (logger && logger.warn) {
+      logger.warn(error.message);
     }
   };
 
@@ -85,13 +88,13 @@ const forward = (socket, {
       }
     },
     onError: (error) => {
-      printError(`${destHostname} x-> ${error.message}`);
+      printError(`${destHostname} -x- ${error.message} ${error.message}`);
       if (state.isActive) {
         socket.destroy();
       }
     },
     onEnd: () => {
-      print(`${destHostname} x-> ${sourceHostname}`);
+      print(`${destHostname} -x- ${sourceHostname}`);
       if (state.isActive) {
         socket.end();
       }
@@ -119,7 +122,7 @@ const forward = (socket, {
       state.isActive = false;
       cleanup();
       if (connection) {
-        printError(`${sourceHostname} x-> ${destHostname}`);
+        printError(`${sourceHostname} -x- ${destHostname}`);
         if (hasError) {
           connection();
         } else {
@@ -134,7 +137,7 @@ const forward = (socket, {
       state.isActive = false;
       cleanup();
       if (connection) {
-        print(`${sourceHostname} x-> ${destHostname}`);
+        print(`${sourceHostname} -x- ${destHostname}`);
         connection.end();
       }
     }
@@ -188,5 +191,3 @@ const forward = (socket, {
     }
   }
 };
-
-module.exports = forward;
