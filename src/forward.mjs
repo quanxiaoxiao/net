@@ -31,7 +31,6 @@ export default (socket, {
   const state = {
     isActive: true,
     isCleanup: false,
-    isConnect: false,
   };
   let connection;
 
@@ -54,7 +53,7 @@ export default (socket, {
   }
   const start = new Date();
 
-  print(`${sourceHostname} ----- ${destHostname} ${start.getTime()}`);
+  print(`${sourceHostname} ->- ${destHostname}`);
 
   connection = connector({ // eslint-disable-line
     hostname,
@@ -67,7 +66,6 @@ export default (socket, {
         connection();
       } else {
         print(`${sourceHostname} -> ${destHostname} ${Date.now() - start.getTime()}ms`);
-        state.isConnect = true;
         process.nextTick(() => {
           if (state.isActive) {
             connection.resume();
@@ -78,7 +76,7 @@ export default (socket, {
     },
     onData: (chunk) => {
       if (!state.isActive) {
-        printError(`${destHostname} -> ${sourceHostname} EPIPE`);
+        printError(`${destHostname} -x- ${sourceHostname}`);
         connection();
       } else {
         const ret = socket.write(incoming ? incoming(chunk) : chunk);
@@ -88,7 +86,7 @@ export default (socket, {
       }
     },
     onError: (error) => {
-      printError(`${destHostname} -x- ${error.message} ${error.message}`);
+      printError(`${destHostname} -x- ${sourceHostname} \`${error.message}\``);
       if (state.isActive) {
         socket.destroy();
       }
