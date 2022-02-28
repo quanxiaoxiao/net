@@ -10,7 +10,7 @@ export default (socket, {
   onEnd,
   onDrain,
   bufList: bList,
-  timeout = 1000 * 90,
+  timeout = 1000 * 30,
 }) => {
   if (socket.destroyed || !socket.writable || socket.writableEnded) {
     return null;
