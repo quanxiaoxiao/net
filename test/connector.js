@@ -68,7 +68,7 @@ test.cb('connect', (t) => {
 });
 
 test.cb('connect buffer list', (t) => {
-  t.plan(5);
+  t.plan(4);
   const server = net.createServer((socket) => {
     socket.on('data', (chunk) => {
       t.true(chunk.toString() === 'aaa');
@@ -96,7 +96,7 @@ test.cb('connect buffer list', (t) => {
         t.pass();
       },
       onDrain: () => {
-        t.pass();
+        t.fail();
       },
       onConnect: () => {
         t.pass();
@@ -110,20 +110,20 @@ test.cb('connect buffer list', (t) => {
 });
 
 test.cb('write', (t) => {
-  t.plan(4);
+  t.plan(3);
   const bufList = [];
   const server = net.createServer((socket) => {
     socket.on('data', (chunk) => {
       bufList.push(chunk);
     });
     setTimeout(() => {
-      t.is(Buffer.concat(bufList).toString(), 'aaa222');
+      t.is(Buffer.concat(bufList).toString(), 'aaa');
       socket.end();
     }, 500);
   });
   server.listen(4097);
 
-  const connection = connector(
+  connector(
     {
       hostname: 'localhost',
       port: 4097,
@@ -140,7 +140,7 @@ test.cb('write', (t) => {
         t.pass();
       },
       onDrain: () => {
-        t.true(connection.write('222'));
+        t.fail();
       },
       onConnect: () => {
         t.pass();
