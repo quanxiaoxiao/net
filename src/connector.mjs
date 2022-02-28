@@ -11,7 +11,7 @@ export default ({
   hostname,
   port,
   bufList = [],
-  timeout = 1000 * 90,
+  timeout = 1000 * 30,
 }, {
   onData,
   onConnect,

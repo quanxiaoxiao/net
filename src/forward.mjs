@@ -7,7 +7,7 @@ export default (socket, {
   incoming,
   outgoing,
   bufList,
-  timeout = 1000 * 90,
+  timeout = 1000 * 30,
   logger,
 }) => {
   const printError = (error) => {
@@ -39,6 +39,7 @@ export default (socket, {
 
   function handleTimeout() {
     state.isActive = false;
+    printError(`${sourceHost} timeout`);
     if (connection) {
       connection();
     }
@@ -110,7 +111,7 @@ export default (socket, {
       }
     },
     onError: (error) => {
-      printError(`${destHost} -x- ${sourceHost} \`${error.message}\``);
+      printError(`${destHost} \`${error.message}\``);
       if (state.isActive) {
         state.isActive = false;
         cleanup();
@@ -135,9 +136,9 @@ export default (socket, {
   });
 
   function handleError(error) {
+    printError(error.message);
     if (state.isActive) {
       state.isActive = false;
-      printError(error.message);
       cleanup();
       if (connection) {
         connection();
@@ -146,9 +147,9 @@ export default (socket, {
   }
 
   function handleClose(hasError) {
+    print(`${sourceHost} -x- ${destHost}`);
     if (state.isActive) {
       state.isActive = false;
-      print(`${sourceHost} -x- ${destHost}`);
       cleanup();
       if (connection) {
         if (hasError) {
@@ -161,9 +162,9 @@ export default (socket, {
   }
 
   function handleEnd() {
+    print(`${sourceHost} -x- ${destHost}`);
     if (state.isActive) {
       state.isActive = false;
-      print(`${sourceHost} -x- ${destHost}`);
       cleanup();
       if (connection) {
         connection.end();
