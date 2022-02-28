@@ -7,15 +7,15 @@ export default (socket, {
   incoming,
   outgoing,
   bufList,
+  timeout = 1000 * 90,
   logger,
-  timeout,
 }) => {
   const printError = (error) => {
     if (process.env.NODE_ENV === 'development') {
       console.error(error);
     }
     if (logger && logger.warn) {
-      logger.warn(error.message);
+      logger.warn(error);
     }
   };
 
@@ -24,8 +24,8 @@ export default (socket, {
       logger.info(...args);
     }
   };
-  if (socket.destroyed) {
-    printError('socket had destroyed');
+  if (socket.destroyed || !socket.writable) {
+    printError('socket alread close');
     return;
   }
   const state = {
@@ -34,8 +34,19 @@ export default (socket, {
   };
   let connection;
 
-  const sourceHostname = `${socket.remoteAddress}:${socket.remotePort}`;
-  const destHostname = `${hostname}:${port}`;
+  const sourceHost = `${socket.remoteAddress}:${socket.remotePort}`;
+  const destHost = `${hostname}:${port}`;
+
+  function handleTimeout() {
+    state.isActive = false;
+    if (connection) {
+      connection();
+    }
+    cleanup();
+    if (!socket.destroyed) {
+      socket.destroy();
+    }
+  }
 
   socket.once('error', handleError);
   socket.once('close', handleClose);
@@ -48,24 +59,27 @@ export default (socket, {
       socket.off('close', handleClose);
       socket.off('end', handleEnd);
     }
-    printError('socket had closed');
+    printError('socket alread closed');
     return;
   }
   const start = new Date();
 
-  print(`${sourceHostname} ->- ${destHostname}`);
+  if (!socket.isPaused()) {
+    socket.pause();
+  }
+
+  print(`${sourceHost} ->- ${destHost}`);
 
   connection = connector({ // eslint-disable-line
     hostname,
     port,
     bufList,
-    timeout,
   }, {
     onConnect: () => {
       if (!state.isActive) {
         connection();
       } else {
-        print(`${sourceHostname} -> ${destHostname} ${Date.now() - start.getTime()}ms`);
+        print(`${sourceHost} -> ${destHost} ${Date.now() - start.getTime()}ms`);
         process.nextTick(() => {
           if (state.isActive) {
             connection.resume();
@@ -76,24 +90,40 @@ export default (socket, {
     },
     onData: (chunk) => {
       if (!state.isActive) {
-        printError(`${destHostname} -x- ${sourceHostname}`);
+        printError(`${destHost} -x- ${sourceHost} EPIPE`);
         connection();
       } else {
-        const ret = socket.write(incoming ? incoming(chunk) : chunk);
-        if (!ret) {
-          connection.pause();
+        const dataChunk = incoming ? incoming(chunk) : chunk;
+        if (dataChunk == null) {
+          state.isActive = false;
+          connection();
+          cleanup();
+          if (!socket.destroyed) {
+            socket.destroy();
+          }
+        } else if (dataChunk.length > 0) {
+          const ret = socket.write(dataChunk);
+          if (!ret) {
+            connection.pause();
+          }
         }
       }
     },
     onError: (error) => {
-      printError(`${destHostname} -x- ${sourceHostname} \`${error.message}\``);
+      printError(`${destHost} -x- ${sourceHost} \`${error.message}\``);
       if (state.isActive) {
-        socket.destroy();
+        state.isActive = false;
+        cleanup();
+        if (!socket.destroyed) {
+          socket.destroy();
+        }
       }
     },
     onEnd: () => {
-      print(`${destHostname} -x- ${sourceHostname}`);
+      print(`${destHost} -x- ${sourceHost}`);
       if (state.isActive) {
+        state.isActive = false;
+        cleanup();
         socket.end();
       }
     },
@@ -107,7 +137,7 @@ export default (socket, {
   function handleError(error) {
     if (state.isActive) {
       state.isActive = false;
-      printError(`${sourceHostname} ${error.message}`);
+      printError(error.message);
       cleanup();
       if (connection) {
         connection();
@@ -118,9 +148,9 @@ export default (socket, {
   function handleClose(hasError) {
     if (state.isActive) {
       state.isActive = false;
+      print(`${sourceHost} -x- ${destHost}`);
       cleanup();
       if (connection) {
-        printError(`${sourceHostname} -x- ${destHostname}`);
         if (hasError) {
           connection();
         } else {
@@ -133,17 +163,11 @@ export default (socket, {
   function handleEnd() {
     if (state.isActive) {
       state.isActive = false;
+      print(`${sourceHost} -x- ${destHost}`);
       cleanup();
       if (connection) {
-        print(`${sourceHostname} -x- ${destHostname}`);
         connection.end();
       }
-    }
-  }
-
-  function handleTimeout() {
-    if (state.isActive) {
-      socket.end();
     }
   }
 
@@ -155,13 +179,27 @@ export default (socket, {
       }
     } else {
       try {
-        const ret = connection.write(outgoing ? outgoing(chunk) : chunk);
-        if (!ret && !socket.isPaused()) {
-          socket.pause();
+        const dataChunk = outgoing ? outgoing(chunk) : chunk;
+        if (dataChunk == null) {
+          state.isActive = false;
+          connection();
+          cleanup();
+          if (!socket.destroyed) {
+            socket.destroy();
+          }
+        } else if (dataChunk.length > 0) {
+          const ret = connection.write(dataChunk);
+          if (!ret && !socket.isPaused()) {
+            socket.pause();
+          }
         }
       } catch (error) {
+        state.isActive = false;
         printError(error.message);
-        socket.destroy();
+        cleanup();
+        if (!socket.destroyed) {
+          socket.destroy();
+        }
       }
     }
   }
@@ -172,8 +210,9 @@ export default (socket, {
 
   socket.on('drain', handleDrain);
   socket.on('data', handleDataOnOutgoing);
-  if (timeout != null) {
-    socket.on('timeout', handleTimeout);
+
+  if (timeout != null && timeout > 0) {
+    socket.once('timeout', handleTimeout);
   }
 
   function cleanup() {
@@ -183,9 +222,7 @@ export default (socket, {
       socket.off('drain', handleDrain);
       socket.off('close', handleClose);
       socket.off('end', handleEnd);
-      if (timeout != null) {
-        socket.off('timeout', handleTimeout);
-      }
+      socket.off('timeout', handleTimeout);
     }
   }
 };

@@ -1,12 +1,17 @@
 /* eslint no-use-before-define: 0 */
 import net from 'node:net';
-import dns from 'node:dns';
+// import dns from 'node:dns';
+
+const checkStateEmitable = (state) => !state.isEnd
+  && state.isActive
+  && !state.isErrorEmit
+  && !state.isEndEmit;
 
 export default ({
   hostname,
   port,
   bufList = [],
-  timeout,
+  timeout = 1000 * 90,
 }, {
   onData,
   onConnect,
@@ -29,39 +34,44 @@ export default ({
     isConnect: false,
   };
 
-  const getStateEmitable = () => !state.isEnd
-    && state.isActive
-    && !state.isErrorEmit
-    && !state.isEndEmit;
+  function handleTimeout() {
+    if (checkStateEmitable(state)) {
+      state.isErrorEmit = true;
+      onError(new Error('timeout'));
+    }
+    state.isActive = false;
+    cleanup();
+    if (!client.destroyed) {
+      client.destroy();
+    }
+  }
 
-  const handleConnect = () => {
+  function handleConnect() {
     if (state.isActive) {
-      const isDrainEmit = bufList.length > 0;
-      while (bufList.length > 0) {
+      while (state.isActive && bufList.length > 0) {
         client.write(bufList.shift());
       }
       process.nextTick(() => {
-        if (state.isActive) {
+        if (state.isActive && !state.isEnd) {
           state.isConnect = true;
-          if (!state.isEnd && onConnect) {
+          if (onConnect) {
             onConnect(client);
           }
-          if (!state.isEnd && isDrainEmit && onDrain) {
-            onDrain();
+          if (state.waited) {
+            state.waited = false;
+            if (onDrain) {
+              onDrain();
+            }
           }
+          client.on('data', handleData);
+          client.on('drain', handleDrain);
         }
       });
-    } else if (!client.destroyed) {
-      client.destroy();
     }
-  };
-
-  const handleTimeout = () => {
-    client.end();
-  };
+  }
 
   const handleError = (error) => {
-    if (getStateEmitable()) {
+    if (checkStateEmitable(state)) {
       state.isErrorEmit = true;
       onError(error);
     }
@@ -70,7 +80,7 @@ export default ({
   };
 
   const handleEnd = () => {
-    if (getStateEmitable()) {
+    if (checkStateEmitable(state)) {
       state.isEndEmit = true;
       onEnd();
     }
@@ -79,7 +89,7 @@ export default ({
   };
 
   const handleClose = (hasError) => {
-    if (getStateEmitable()) {
+    if (checkStateEmitable(state)) {
       if (hasError) {
         state.isErrorEmit = true;
         onError(new Error('socket had a transmission error'));
@@ -93,7 +103,7 @@ export default ({
   };
 
   const handleDrain = () => {
-    while (bufList.length > 0) {
+    while (state.isActive && bufList.length > 0) {
       const ret = client.write(bufList.shift());
       if (!ret) {
         break;
@@ -120,11 +130,8 @@ export default ({
   client.once('connect', handleConnect);
   client.once('end', handleEnd);
   client.once('close', handleClose);
-  client.on('data', handleData);
-  client.on('drain', handleDrain);
 
-  if (timeout != null) {
-    client.setTimeout(timeout);
+  if (timeout != null && timeout > 0) {
     client.once('timeout', handleTimeout);
   }
 
@@ -134,11 +141,11 @@ export default ({
       if (client.connecting) {
         client.off('connect', handleConnect);
       }
-      if (timeout != null) {
-        client.off('timeout', handleTimeout);
+      if (state.isConnect) {
+        client.off('drain', handleDrain);
+        client.off('data', handleData);
       }
-      client.off('drain', handleDrain);
-      client.off('data', handleData);
+      client.off('timeout', handleTimeout);
       client.off('end', handleEnd);
       client.off('close', handleClose);
     }
@@ -147,11 +154,6 @@ export default ({
   client.connect({
     host: hostname,
     port,
-    lookup: (host, options, cb) => dns.lookup(host, {
-      ...options,
-      family: 6,
-      hints: dns.ADDRCONFIG | dns.V4MAPPED,
-    }, cb),
   });
 
   const connect = () => {
@@ -160,33 +162,38 @@ export default ({
       if (client.connecting) {
         client.off('connect', handleConnect);
       }
+      cleanup();
       if (!client.destroyed) {
         client.destroy();
       }
-      cleanup();
     }
   };
 
   connect.pause = () => {
-    if (client.readable && !client.isPaused()) {
+    if (state.isConnect
+      && client.readable
+      && !client.isPaused()) {
       client.pause();
     }
   };
 
   connect.resume = () => {
-    if (client.readable && client.isPaused()) {
+    if (state.isConnect
+      && client.readable
+      && client.isPaused()) {
       client.resume();
     }
   };
 
   connect.write = (chunk) => {
     if (!state.isActive || state.isEnd) {
-      throw new Error(`socket has close ${hostname}:${port}`);
+      throw new Error(`socket already \`${hostname}:${port}\``);
     }
     if (state.waited
       || bufList.length > 0
       || !state.isConnect
     ) {
+      state.waited = true;
       bufList.push(chunk);
       return false;
     }
@@ -198,47 +205,30 @@ export default ({
   };
 
   connect.end = () => {
-    if (!state.isActive || state.isEnd) {
-      return;
-    }
-    client.off('data', handleData);
-    client.off('drain', handleDrain);
-    state.isEnd = true;
-    if (!state.isConnect) {
-      state.isActive = false;
-      if (client.connecting) {
-        client.off('connect', handleConnect);
+    if (state.isActive && !state.isEnd) {
+      state.isEnd = true;
+      if (state.isConnect) {
+        client.off('data', handleData);
+        client.off('drain', handleDrain);
+        client.off('close', handleClose);
+        client.off('end', handleEnd);
+        if (bufList.length > 0) {
+          client.end(Buffer.concat(bufList));
+        } else {
+          client.end();
+        }
+      } else {
+        state.isActive = false;
+        if (client.connecting) {
+          client.off('connect', handleConnect);
+        }
+        cleanup();
+        if (!client.destroyed) {
+          client.destroy();
+        }
       }
-      if (!client.destroyed) {
-        client.destroy();
-      }
-    } else if (bufList.length > 0) {
-      client.end(Buffer.concat(bufList));
-    } else {
-      client.end();
     }
   };
-
-  connect.detach = () => {
-    if (client.destroyed
-      || state.isEnd
-      || !state.isActive
-    ) {
-      return null;
-    }
-    if (!state.isConnect) {
-      client.destroy();
-      cleanup();
-      return null;
-    }
-    cleanup();
-    client.off('error', handleError);
-    return client;
-  };
-
-  connect.bufList = bufList;
-  connect.socket = client;
-  connect.fresh = handleDrain;
 
   return connect;
 };

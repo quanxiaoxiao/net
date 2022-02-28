@@ -1,4 +1,8 @@
 /* eslint no-use-before-define: 0 */
+const checkStateEmitable = (state) => !state.isEnd
+  && state.isActive
+  && !state.isErrorEmit
+  && !state.isEndEmit;
 
 export default (socket, {
   onData,
@@ -6,9 +10,9 @@ export default (socket, {
   onEnd,
   onDrain,
   bufList: bList,
-  timeout,
+  timeout = 1000 * 90,
 }) => {
-  if (socket.destroyed) {
+  if (socket.destroyed || !socket.writable || socket.writableEnded) {
     return null;
   }
   const state = {
@@ -22,13 +26,9 @@ export default (socket, {
 
     waited: false,
   };
-  const getStateEmitable = () => !state.isEnd
-    && state.isActive
-    && !state.isErrorEmit
-    && !state.isEndEmit;
 
   const handleErrorOnInit = (error) => {
-    if (getStateEmitable()) {
+    if (checkStateEmitable(state)) {
       state.isErrorEmit = true;
       onError(error);
     }
@@ -37,11 +37,11 @@ export default (socket, {
 
   socket.once('error', handleErrorOnInit);
 
-  if (socket.connecting || socket.pending || !socket.writable) {
+  if (socket.connecting || socket.pending) {
     if (state.isActive) {
-      if (getStateEmitable()) {
+      if (checkStateEmitable(state)) {
         state.isErrorEmit = true;
-        onError(new Error(socket.connecting || socket.pending ? 'socket is not connect' : 'socket has closed'));
+        onError(new Error('socket is not connect'));
       }
       state.isActive = false;
     }
@@ -56,10 +56,22 @@ export default (socket, {
     return null;
   }
 
+  function handleTimeout() {
+    if (checkStateEmitable(state)) {
+      state.isErrorEmit = true;
+      onError(new Error('timeout'));
+    }
+    state.isActive = false;
+    cleanup();
+    if (!socket.destroyed) {
+      socket.destroy();
+    }
+  }
+
   const bufList = [...(bList || [])];
 
   const handleDrain = () => {
-    while (bufList.length > 0) {
+    while (state.isActive && bufList.length > 0) {
       const ret = socket.write(bufList.shift());
       if (!ret) {
         break;
@@ -83,7 +95,7 @@ export default (socket, {
   };
 
   const handleError = (error) => {
-    if (getStateEmitable()) {
+    if (checkStateEmitable(state)) {
       state.isErrorEmit = true;
       onError(error);
     }
@@ -92,7 +104,7 @@ export default (socket, {
   };
 
   const handleEnd = () => {
-    if (getStateEmitable()) {
+    if (checkStateEmitable(state)) {
       state.isEndEmit = true;
       onEnd();
     }
@@ -101,7 +113,7 @@ export default (socket, {
   };
 
   const handleClose = (hasError) => {
-    if (getStateEmitable()) {
+    if (checkStateEmitable(state)) {
       if (hasError) {
         state.isErrorEmit = true;
         onError(new Error('socket had a transmission error'));
@@ -114,19 +126,15 @@ export default (socket, {
     cleanup();
   };
 
-  const handleTimeout = () => {
-    socket.end();
-  };
-
   socket.once('error', handleError);
   socket.off('error', handleErrorOnInit);
   socket.once('end', handleEnd);
   socket.once('close', handleClose);
   socket.on('data', handleData);
   socket.on('drain', handleDrain);
-  if (timeout != null) {
-    socket.setTimeout(timeout);
-    socket.once('timeout', handleTimeout);
+
+  if (timeout != null && timeout > 0) {
+    socket.on('timeout', handleTimeout);
   }
 
   function cleanup() {
@@ -136,9 +144,6 @@ export default (socket, {
       socket.off('data', handleData);
       socket.off('end', handleEnd);
       socket.off('close', handleClose);
-      if (timeout != null) {
-        socket.off('timeout', handleTimeout);
-      }
     }
   }
 
@@ -169,6 +174,7 @@ export default (socket, {
       throw new Error('connect ECONNREFUSED');
     }
     if (state.waited || bufList.length > 0) {
+      state.waited = true;
       bufList.push(chunk);
       return false;
     }
@@ -180,21 +186,20 @@ export default (socket, {
   };
 
   connect.end = () => {
-    if (!state.isActive || state.isEnd) {
-      return;
-    }
-    socket.off('data', handleData);
-    state.isEnd = true;
-    if (bufList.length > 0) {
-      socket.end(Buffer.concat(bufList));
-    } else {
-      socket.end();
+    if (state.isActive && !state.isEnd) {
+      state.isEnd = true;
+      socket.off('drain', handleDrain);
+      socket.off('data', handleData);
+      socket.off('close', handleClose);
+      socket.off('end', handleEnd);
+      socket.off('timeout', handleTimeout);
+      if (bufList.length > 0) {
+        socket.end(Buffer.concat(bufList));
+      } else {
+        socket.end();
+      }
     }
   };
-
-  connect.bufList = bufList;
-  connect.socket = socket;
-  connect.fresh = handleDrain;
 
   return connect;
 };
