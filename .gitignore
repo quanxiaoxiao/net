@@ -5,6 +5,7 @@ dist
 *.tar
 .DS_store
 .tplconfig
+db.json
 
 # Swap
 [._]*.s[a-v][a-z]
