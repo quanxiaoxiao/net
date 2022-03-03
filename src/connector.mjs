@@ -145,7 +145,9 @@ export default ({
         client.off('drain', handleDrain);
         client.off('data', handleData);
       }
-      client.off('timeout', handleTimeout);
+      if (timeout != null) {
+        client.off('timeout', handleTimeout);
+      }
       client.off('end', handleEnd);
       client.off('close', handleClose);
     }
@@ -208,6 +210,7 @@ export default ({
     if (state.isActive && !state.isEnd) {
       state.isEnd = true;
       if (state.isConnect) {
+        state.isCleanup = true;
         client.off('data', handleData);
         client.off('drain', handleDrain);
         client.off('close', handleClose);

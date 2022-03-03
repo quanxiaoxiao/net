@@ -12,7 +12,8 @@ export default (socket, {
   bufList: bList,
   timeout = 1000 * 30,
 }) => {
-  if (socket.destroyed || !socket.writable || socket.writableEnded) {
+  if (socket.destroyed || !socket.writable) {
+    onError(new Error('socket already close'));
     return null;
   }
   const state = {
@@ -48,7 +49,6 @@ export default (socket, {
     if (!socket.destroyed) {
       socket.destroy();
     }
-    socket.off('error', handleErrorOnInit);
     return null;
   }
 
@@ -127,11 +127,13 @@ export default (socket, {
   };
 
   socket.once('error', handleError);
-  socket.off('error', handleErrorOnInit);
   socket.once('end', handleEnd);
   socket.once('close', handleClose);
   socket.on('data', handleData);
   socket.on('drain', handleDrain);
+  process.nextTick(() => {
+    socket.off('error', handleErrorOnInit);
+  });
 
   if (timeout != null && timeout > 0) {
     socket.on('timeout', handleTimeout);
@@ -144,16 +146,19 @@ export default (socket, {
       socket.off('data', handleData);
       socket.off('end', handleEnd);
       socket.off('close', handleClose);
+      if (timeout != null) {
+        socket.off('timeout', handleTimeout);
+      }
     }
   }
 
   const connect = () => {
     if (state.isActive) {
       state.isActive = false;
+      cleanup();
       if (!socket.destroyed) {
         socket.destroy();
       }
-      cleanup();
     }
   };
 
@@ -188,11 +193,11 @@ export default (socket, {
   connect.end = () => {
     if (state.isActive && !state.isEnd) {
       state.isEnd = true;
+      state.isCleanup = true;
       socket.off('drain', handleDrain);
       socket.off('data', handleData);
       socket.off('close', handleClose);
       socket.off('end', handleEnd);
-      socket.off('timeout', handleTimeout);
       if (bufList.length > 0) {
         socket.end(Buffer.concat(bufList));
       } else {

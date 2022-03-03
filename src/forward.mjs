@@ -223,7 +223,9 @@ export default (socket, {
       socket.off('drain', handleDrain);
       socket.off('close', handleClose);
       socket.off('end', handleEnd);
-      socket.off('timeout', handleTimeout);
+      if (timeout != null) {
+        socket.off('timeout', handleTimeout);
+      }
     }
   }
 };
