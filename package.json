@@ -1,6 +1,6 @@
 {
   "name": "@quanxiaoxiao/net",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "",
   "type": "module",
   "scripts": {
@@ -27,6 +27,6 @@
     "eslint-plugin-react-hooks": "^4.3.0"
   },
   "engines": {
-    "node": ">= 14"
+    "node": ">= 14.18.0"
   }
 }

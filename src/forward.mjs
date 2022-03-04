@@ -24,14 +24,18 @@ export default (socket, {
       logger.info(...args);
     }
   };
-  if (socket.destroyed || !socket.writable) {
+
+  if (socket.destroyed || (!socket.writable && !socket.readable)) {
     printError('socket alread close');
     return;
   }
+
   const state = {
     isActive: true,
     isCleanup: false,
+    isConnect: false,
   };
+
   let connection;
 
   const sourceHost = `${socket.remoteAddress}:${socket.remotePort}`;
@@ -53,7 +57,7 @@ export default (socket, {
   socket.once('close', handleClose);
   socket.once('end', handleEnd);
 
-  if (!socket.writable || !state.isActive) {
+  if ((!socket.writable && !socket.readable) || !state.isActive) {
     if (!state.isCleanup) {
       state.isCleanup = true;
       socket.off('error', handleError);
@@ -81,10 +85,15 @@ export default (socket, {
         connection();
       } else {
         print(`${sourceHost} -> ${destHost} ${Date.now() - start.getTime()}ms`);
+        state.isConnect = true;
+        socket.on('drain', handleDrain);
+        socket.on('data', handleDataOnOutgoing);
         process.nextTick(() => {
           if (state.isActive) {
             connection.resume();
-            socket.resume();
+            if (socket.isPaused()) {
+              socket.resume();
+            }
           }
         });
       }
@@ -125,7 +134,11 @@ export default (socket, {
       if (state.isActive) {
         state.isActive = false;
         cleanup();
-        socket.end();
+        if (state.isConnect) {
+          socket.end();
+        } else {
+          socket.destroy();
+        }
       }
     },
     onDrain: () => {
@@ -209,9 +222,6 @@ export default (socket, {
     connection.resume();
   }
 
-  socket.on('drain', handleDrain);
-  socket.on('data', handleDataOnOutgoing);
-
   if (timeout != null && timeout > 0) {
     socket.once('timeout', handleTimeout);
   }
@@ -219,8 +229,10 @@ export default (socket, {
   function cleanup() {
     if (!state.isCleanup) {
       state.isCleanup = true;
-      socket.off('data', handleDataOnOutgoing);
-      socket.off('drain', handleDrain);
+      if (state.isConnect) {
+        socket.off('data', handleDataOnOutgoing);
+        socket.off('drain', handleDrain);
+      }
       socket.off('close', handleClose);
       socket.off('end', handleEnd);
       if (timeout != null) {

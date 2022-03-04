@@ -12,7 +12,7 @@ export default (socket, {
   bufList: bList,
   timeout = 1000 * 30,
 }) => {
-  if (socket.destroyed || !socket.writable) {
+  if (socket.destroyed || (!socket.readable && !socket.writable)) {
     onError(new Error('socket already close'));
     return null;
   }
@@ -131,13 +131,13 @@ export default (socket, {
   socket.once('close', handleClose);
   socket.on('data', handleData);
   socket.on('drain', handleDrain);
-  process.nextTick(() => {
-    socket.off('error', handleErrorOnInit);
-  });
-
   if (timeout != null && timeout > 0) {
     socket.on('timeout', handleTimeout);
   }
+
+  process.nextTick(() => {
+    socket.off('error', handleErrorOnInit);
+  });
 
   function cleanup() {
     if (!state.isCleanup) {

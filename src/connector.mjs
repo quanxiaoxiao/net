@@ -37,7 +37,7 @@ export default ({
   function handleTimeout() {
     if (checkStateEmitable(state)) {
       state.isErrorEmit = true;
-      onError(new Error('timeout'));
+      onError(new Error('socket timeout'));
     }
     state.isActive = false;
     cleanup();
@@ -189,7 +189,7 @@ export default ({
 
   connect.write = (chunk) => {
     if (!state.isActive || state.isEnd) {
-      throw new Error(`socket already \`${hostname}:${port}\``);
+      throw new Error(`socket \`${hostname}:${port}\` already close`);
     }
     if (state.waited
       || bufList.length > 0
