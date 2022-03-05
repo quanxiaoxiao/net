@@ -144,11 +144,11 @@ export default (socket, {
       state.isCleanup = true;
       socket.off('drain', handleDrain);
       socket.off('data', handleData);
-      socket.off('end', handleEnd);
-      socket.off('close', handleClose);
       if (timeout != null) {
         socket.off('timeout', handleTimeout);
       }
+      socket.off('end', handleEnd);
+      socket.off('close', handleClose);
     }
   }
 

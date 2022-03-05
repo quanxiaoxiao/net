@@ -1,6 +1,5 @@
 /* eslint no-use-before-define: 0 */
 import net from 'node:net';
-// import dns from 'node:dns';
 
 const checkStateEmitable = (state) => !state.isEnd
   && state.isActive

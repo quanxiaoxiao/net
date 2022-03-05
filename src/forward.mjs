@@ -233,11 +233,11 @@ export default (socket, {
         socket.off('data', handleDataOnOutgoing);
         socket.off('drain', handleDrain);
       }
-      socket.off('close', handleClose);
-      socket.off('end', handleEnd);
       if (timeout != null) {
         socket.off('timeout', handleTimeout);
       }
+      socket.off('close', handleClose);
+      socket.off('end', handleEnd);
     }
   }
 };
